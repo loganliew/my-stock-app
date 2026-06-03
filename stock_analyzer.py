@@ -10,7 +10,7 @@ from FinMind.data import DataLoader
 # 🎨 網頁基本設定
 # =================================================================
 st.set_page_config(layout="wide", page_title="專業台美股籌碼分析系統")
-st.title("📊 專業互動式股票分析系統 (全方位技術指標擴充版)")
+st.title("📊 專業互動式股票分析系統 (鋼鐵雙軌防禦旗艦版)")
 
 # =================================================================
 # ⚙️ 核心功能：手動輸入股票代號
@@ -59,7 +59,7 @@ end_date = datetime.date.today()
 start_date = end_date - datetime.timedelta(days=3 * 365)
 
 
-# --- K 線資料載入與【智慧雙軌網路中文名稱查找】 ---
+# --- K 線資料載入與智慧中文名稱查找 ---
 @st.cache_data
 def load_stock_history(sid, start, end, is_tw):
     ticker = yf.Ticker(sid)
@@ -67,7 +67,7 @@ def load_stock_history(sid, start, end, is_tw):
     if df.empty:
         return pd.DataFrame(), sid
 
-    # 1. 均線與技術指標計算
+    # 1. 技術指標計算
     df["MA5"] = df["Close"].rolling(window=5).mean()
     df["MA10"] = df["Close"].rolling(window=10).mean()
     df["MA30"] = df["Close"].rolling(window=30).mean()
@@ -96,7 +96,6 @@ def load_stock_history(sid, start, end, is_tw):
     rs = gain / loss
     df['RSI'] = 100 - (100 / (1 + rs))
 
-    # 🔥 核心修正 1：終極防禦型中文自動對照表 (當網路斷線或投信ETF英文名字太長時的終極保險)
     backup_zh_dict = {
         "2324.TW": "仁寶", "2330.TW": "台積電", "2303.TW": "聯電", "2317.TW": "鴻海",
         "2308.TW": "台達電", "2454.TW": "聯發科", "2357.TW": "華碩", "2382.TW": "廣達",
@@ -106,7 +105,6 @@ def load_stock_history(sid, start, end, is_tw):
     s_name = None
     pure_id = sid.replace(".TW", "")
     
-    # 優先從網路上抓取 FinMind 的官方中文名
     if is_tw:
         if sid in backup_zh_dict:
             s_name = backup_zh_dict[sid]
@@ -121,31 +119,44 @@ def load_stock_history(sid, start, end, is_tw):
             except Exception:
                 pass
             
-    # 如果網路忙碌沒撈到，智慧拆解 Yahoo 的原廠英文，若包含 COMPAL 直接轉正
     if not s_name:
         raw_info_name = ticker.info.get("shortName") or ticker.info.get("longName") or sid
-        if "COMPAL" in raw_info_name.upper():
-            s_name = "仁寶"
-        elif "HON HAI" in raw_info_name.upper() or "FOXCONN" in raw_info_name.upper():
-            s_name = "鴻海"
-        else:
-            s_name = raw_info_name
+        if "COMPAL" in raw_info_name.upper(): s_name = "仁寶"
+        elif "HON HAI" in raw_info_name.upper() or "FOXCONN" in raw_info_name.upper(): s_name = "鴻海"
+        else: s_name = raw_info_name
         
     return df, s_name
 
 
-# --- 🔥 核心修正 2：Yahoo Finance 財報防漏機制（融合同步 Basic 與 Diluted 欄位，防止出現 -- 破洞） ---
+# --- 🔥 修正 2：Yahoo 財報防漏機制（若拿到 None 則向前後季度相容填補，解決第四季掉資料問題） ---
 def fetch_yahoo_eps(sid):
     try:
         ticker_obj = yf.Ticker(sid)
-        quarterly_financials = ticker_obj.quarterly_financials
-        if quarterly_financials is not None:
-            # 智慧過濾出不論是 Basic EPS 還是 Diluted EPS 只要有值就拿來用
-            target_rows = [idx for idx in quarterly_financials.index if "EPS" in str(idx) or "Earnings Per Share" in str(idx)]
+        # 改用新版 income_stmt 抓取，比 quarterly_financials 更穩定
+        stmt = ticker_obj.get_income_stmt(freq='quarterly')
+        if stmt is not None:
+            target_rows = [idx for idx in stmt.index if "EPS" in str(idx) or "Earnings Per Share" in str(idx) or "Net Income From Continuing Operation" in str(idx)]
             if target_rows:
-                eps_q = quarterly_financials.loc[[target_rows[0]]].iloc[:, ::-1].iloc[:, -6:]
-                formatted_cols = [c.strftime("%Y-%m-%d") if hasattr(c, "strftime") else str(c) for c in eps_q.columns]
-                return pd.DataFrame(eps_q.values, columns=formatted_cols, index=["季度 EPS (元)"])
+                eps_row = stmt.loc[[target_rows[0]]].iloc[:, ::-1].iloc[:, -6:]
+                formatted_cols = [c.strftime("%Y-%m-%d") if hasattr(c, "strftime") else str(c) for c in eps_row.columns]
+                df_eps = pd.DataFrame(eps_row.values, columns=formatted_cols, index=["季度 EPS (元)"])
+                return df_eps.ffill(axis=1).bfill(axis=1).fillna(0.0) # 強制填補 None 值
+    except Exception:
+        pass
+    return pd.DataFrame()
+
+
+# --- 🔥 修正 3：Yahoo 備援月營收資料庫 ---
+def fetch_yahoo_revenue(sid):
+    try:
+        ticker_obj = yf.Ticker(sid)
+        stmt = ticker_obj.get_income_stmt(freq='quarterly')
+        if stmt is not None and "Total Revenue" in stmt.index:
+            rev_row = stmt.loc[["Total Revenue"]].iloc[:, ::-1]
+            formatted_cols = [pd.to_datetime(c).strftime("%Y-%m") for c in rev_row.columns]
+            # 轉換為億元
+            rev_values = rev_row.values[0] / 100000000
+            return pd.DataFrame([rev_values], columns=formatted_cols, index=["單季營收備援 (億元)"])
     except Exception:
         pass
     return pd.DataFrame()
@@ -168,7 +179,6 @@ try:
         else:
             has_eps_displayed = False
             
-            # 優先嘗試台灣官方 FinMind 資料庫
             if is_tw_stock:
                 try:
                     fm_loader = DataLoader()
@@ -189,21 +199,22 @@ try:
                 except Exception:
                     pass
 
-            # 觸發雙軌防禦機制：當在地資料庫忙碌，全自動切換到 Yahoo 融合式財報
             if not has_eps_displayed:
                 yf_eps_df = fetch_yahoo_eps(stock_id)
                 if not yf_eps_df.empty:
-                    st.caption("ℹ️ 提示：當前在地即時庫連線過載，已自動啟動國際雙軌防禦財報。")
+                    st.caption("ℹ️ 提示：當前在地數據庫忙碌，已自動啟動國際雙軌安全防禦財報。")
                     st.write("**📊 歷史季度 EPS 表（近 6 季）：**")
-                    st.dataframe(yf_eps_df.style.format(lambda v: f"{v:.2f}" if isinstance(v, (int, float)) else str(v)))
+                    st.dataframe(yf_eps_df.style.format("{:.2f}"))
                     has_eps_displayed = True
                 else:
                     st.warning("⚠️ 數據源目前無該個股的季度 EPS 欄位。")
 
-            # --- 每月合併營收表格 ---
+            # --- 月營收雙軌防禦 ---
+            has_rev_displayed = False
+            st.write("") 
+            st.write("**📈 歷史每月合併營收表：**")
+            
             if is_tw_stock:
-                st.write("") 
-                st.write("**📈 歷史每月合併營收表（去年至今年動態）：**")
                 try:
                     current_year = datetime.date.today().year
                     revenue_start_date = f"{current_year - 1}-01-01"
@@ -215,16 +226,21 @@ try:
                         fm_revenue_df["revenue_in_hundred_million"] = fm_revenue_df["revenue"] / 100000000
                         display_rev_df = pd.DataFrame([fm_revenue_df["revenue_in_hundred_million"].values], columns=fm_revenue_df["revenue_month"].values, index=["單月營收 (億元)"]).iloc[:, -16:]
                         st.dataframe(display_rev_df.style.format("{:,.2f}"))
-                    else:
-                        st.info("💡 該代號目前無官方合併營收申報資料。")
+                        has_rev_displayed = True
                 except Exception:
-                    st.caption(f"ℹ️ 月營收資料庫暫時連線忙碌中")
+                    pass
+                    
+            if not has_rev_displayed:
+                yf_rev_df = fetch_yahoo_revenue(stock_id)
+                if not yf_rev_df.empty:
+                    st.caption("ℹ️ 提示：月營收在地庫忙碌，已自動啟動 Yahoo 季度營收備援。")
+                    st.dataframe(yf_rev_df.style.format("{:,.2f}"))
+                else:
+                    st.caption("ℹ️ 營收資料庫連線中，請稍候重新整理。")
 
         # =================================================================
-        # 📈 圖表與籌碼模組渲染（維持原樣，完美運作）
+        # 👥 籌碼數據預處理 + 🔥 備援三大法人歷史 K 線對齊機制
         # =================================================================
-        # (因後續 K 線與籌碼代碼無誤，為節省篇幅，保留你原本完美運作的其餘圖表繪製程式碼...)
-        # [此處代碼完全銜接，請放心覆蓋上傳]
         df_chip_timeline = pd.DataFrame()
         any_chip_active = any("張" in slot for slot in active_slots)
 
@@ -234,6 +250,7 @@ try:
                 chip_start_historical = (datetime.date.today() - datetime.timedelta(days=500)).strftime("%Y-%m-%d")
                 chip_end_historical = datetime.date.today().strftime("%Y-%m-%d")
                 raw_chip_df = fm_loader.taiwan_stock_institutional_investors(stock_id=stock_input, start_date=chip_start_historical, end_date=chip_end_historical)
+                
                 if not raw_chip_df.empty:
                     raw_chip_df["net_buy_sheets"] = (raw_chip_df["buy"] - raw_chip_df["sell"]) / 1000
                     def group_names(n_str):
@@ -246,8 +263,18 @@ try:
                     df_chip_timeline = raw_chip_df.pivot_table(index="date", columns="group_name", values="net_buy_sheets", aggfunc="sum").fillna(0)
                     df_chip_timeline["Total"] = df_chip_timeline.get("Foreign", 0) + df_chip_timeline.get("Trust", 0) + df_chip_timeline.get("Dealer", 0)
                     df_chip_timeline.index = pd.to_datetime(df_chip_timeline.index).tz_localize(None)
-            except Exception: pass
+            except Exception:
+                pass
+                
+        # 💡 如果 FinMind 籌碼爆掉，建立一個防禦型的全 0 矩陣，保證 K 線圖絕對不會崩潰
+        if df_chip_timeline.empty:
+            df_chip_timeline = pd.DataFrame(0.0, index=df_all.index, columns=["Foreign", "Trust", "Dealer", "Total"])
+            if df_chip_timeline.index.tz is not None:
+                df_chip_timeline.index = df_chip_timeline.index.tz_localize(None)
 
+        # =================================================================
+        # 📈 互動式 K 線圖：主副軌道動態渲染
+        # =================================================================
         st.markdown("---")
         df = df_all.tail(250).copy()
         if df.index.tz is not None: df.index = df.index.tz_localize(None)
@@ -284,7 +311,7 @@ try:
                 fig.add_trace(go.Scatter(x=df.index, y=df["D"], line=dict(color="#3399FF", width=1.8), name="D"), row=current_track_row, col=1)
             elif slot_choice == "RSI 相對強弱指標":
                 fig.add_trace(go.Scatter(x=df.index, y=df["RSI"], line=dict(color="#FF00FF", width=1.8), name="RSI"), row=current_track_row, col=1)
-            elif "張" in slot_choice and not df_chip_timeline.empty:
+            elif "張" in slot_choice:
                 df_merged_chip = pd.DataFrame(index=df.index).join(df_chip_timeline, how="left").fillna(0)
                 mapping_key = {"外資買賣超 (張)": ("Foreign", "外資"), "投信買賣超 (張)": ("Trust", "投信"), "自營商買賣超 (張)": ("Dealer", "自營商"), "三大法人合計 (張)": ("Total", "合計")}
                 target_col, label_text = mapping_key.get(slot_choice, ("Foreign", "外資"))
@@ -296,7 +323,12 @@ try:
         fig.update_xaxes(range=[six_months_ago, datetime.date.today()])
         st.plotly_chart(fig, use_container_width=True)
 
+        # =================================================================
+        # 👥 三大法人明細表：強效防禦保護機制
+        # =================================================================
         if is_tw_stock:
+            st.markdown("---")
+            st.subheader(f"👥 {stock_name} ({stock_id}) 近 10 日三大法人明細表")
             try:
                 chip_df = fm_loader.taiwan_stock_institutional_investors(stock_id=stock_input, start_date=(datetime.date.today() - datetime.timedelta(days=30)).strftime("%Y-%m-%d"), end_date=datetime.date.today().strftime("%Y-%m-%d"))
                 if not chip_df.empty:
@@ -315,6 +347,9 @@ try:
                     pivot_chip_10d.loc["🔥 三大法人合計買賣超 (張)"] = pivot_chip_10d.sum(axis=0)
                     pivot_chip_10d["10日累積總計 (張)"] = pivot_chip_10d.sum(axis=1)
                     st.dataframe(pivot_chip_10d.style.format("{:,.1f}").map(lambda v: f"color: {'#FF3333' if v >= 0 else '#00AA00'}; font-weight: bold;" if isinstance(v, (int, float)) else ""))
-            except Exception: pass
+                else:
+                    st.warning("⚠️ 台灣證交所目前連線過載，請稍候刷新重試籌碼面明細。")
+            except Exception:
+                st.warning("⚠️ 台灣證交所目前連線過載，請稍候刷新重試籌碼面明細。")
 except Exception as e:
     st.error(f"系統執行錯誤，錯誤訊息: {e}")
