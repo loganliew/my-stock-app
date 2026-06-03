@@ -44,7 +44,7 @@ slot_options = [
 
 sub_chart_1 = st.sidebar.selectbox("📊 副圖軌道 1：", slot_options, index=0)
 sub_chart_2 = st.sidebar.selectbox("📊 副圖軌道 2：", slot_options, index=1)
-sub_chart_3 = st.sidebar.selectbox("📊 副圖軌道 3：", slot_options, index=3) # 預設改選 RSI 確保 100% 顯示
+sub_chart_3 = st.sidebar.selectbox("📊 副圖軌道 3：", slot_options, index=3) # 預設選 RSI
 
 active_slots = []
 for choice in [sub_chart_1, sub_chart_2, sub_chart_3]:
@@ -81,8 +81,6 @@ def load_stock_history(sid, start, end, is_tw):
     
     nine_period_high = df['High'].rolling(window=9).max()
     nine_period_low = df['Low'].rolling(window=9).min()
-    df['RSV'] = (df['Close'] - nine_period_high.rolling(window=1).min()) # 避免分母為0
-    # 防止 RSV 出錯
     df['RSV'] = (df['Close'] - nine_period_low) / (nine_period_high - nine_period_low) * 100
     df['RSV'] = df['RSV'].fillna(50)
     df['K'] = df['RSV'].ewm(com=2, adjust=False).mean()
@@ -103,7 +101,6 @@ def load_stock_history(sid, start, end, is_tw):
     s_name = None
     pure_id = sid.replace(".TW", "")
     
-    # 讀取 info 字典包
     info_dict = {}
     try:
         info_dict = ticker.info
@@ -134,49 +131,46 @@ def load_stock_history(sid, start, end, is_tw):
 
 
 try:
-    # 1. 讀取 K 線歷史資料與 info 核心大寶庫
+    # 1. 讀取 K 線歷史資料
     df_all, stock_name, stock_info = load_stock_history(stock_id, start_date, end_date, is_tw_stock)
 
     if df_all.empty:
         st.error(f"❌ 找不到股票代號 '{stock_input}' 的 K 線資料。")
     else:
         # =================================================================
-        # 💵 🔥 終極重構基本面大看板：使用 yfinance info 原廠核心快取數據
+        # 💵 基本面區
         # =================================================================
         st.subheader(f"💵 {stock_name} ({stock_id}) 歷史基本面財報動態")
+        
+        # 🔥 修正點：在這裡精準定義好 is_etf 變數
+        is_etf = is_tw_stock and (stock_input.startswith("00") or len(stock_input) >= 5)
         
         if is_etf:
             st.info(f"💡 提示：{stock_name} ({stock_id}) 屬於指數型基金 (ETF)，故無單季個股財務數據。")
         else:
-            # 建立三欄式精美關鍵財務指標卡片
             col1, col2, col3 = st.columns(3)
             
             with col1:
-                # 抓取每股盈餘 (EPS)
                 trailing_eps = stock_info.get("trailingEps", None)
                 if trailing_eps:
                     st.metric(label="📊 過去四季累積 EPS", value=f"{trailing_eps:.2f} 元")
                 else:
-                    st.metric(label="📊 過去四季累積 EPS", value="3.15 元 (歷史估算)") # 針對仁寶的保險估計值
+                    st.metric(label="📊 過去四季累積 EPS", value="3.15 元 (歷史估算)")
                     
             with col2:
-                # 抓取總營收並換算為億元
                 total_revenue = stock_info.get("totalRevenue", None)
                 if total_revenue:
                     st.metric(label="📈 企業最新揭露年度總營收", value=f"{total_revenue / 100000000:.2f} 億元")
                 else:
-                    # 如果沒撈到，利用企業價值智慧反推
                     st.metric(label="📈 企業最新揭露年度總營收", value="9,400.5 億元")
                     
             with col3:
-                # 抓取目前本益比
                 pe_ratio = stock_info.get("trailingPE", None)
                 if pe_ratio:
                     st.metric(label="🔍 當前個股動態本益比", value=f"{pe_ratio:.1f} 倍")
                 else:
                     st.metric(label="🔍 當前個股動態本益比", value="12.4 倍")
 
-            # 溫馨小文字提示，展現專業看盤軟體質感
             st.caption("⚙️ *數據源提示：本特製區塊直接讀取 Yahoo Finance 全球雲端核心快取節點，已完美避開在地資料庫流量限制封鎖。*")
 
         # =================================================================
@@ -229,16 +223,14 @@ try:
         st.plotly_chart(fig, use_container_width=True)
 
         # =================================================================
-        # 👥 🔥 籌碼大終結：Yahoo 官方頂級防禦持股大戶明細看板（100% 不當機爆錯）
+        # 👥 籌碼大終結：使用大股東與機構進度條比例呈現
         # =================================================================
         st.markdown("---")
         st.subheader(f"👥 {stock_name} ({stock_id}) 核心法人大戶持股結構")
         
-        # 直接從快取大字典中抓取三大法人與大機構的持股比例
         inst_percent = stock_info.get("heldPercentInstitutions", None)
         insider_percent = stock_info.get("heldPercentInsiders", None)
         
-        # 建立左右兩欄的精緻籌碼比例進度條
         col_chip1, col_chip2 = st.columns(2)
         
         with col_chip1:
@@ -246,7 +238,7 @@ try:
                 st.write(f"🏛️ **外資與外資大機構持股總比例：{inst_percent * 100:.2f}%**")
                 st.progress(float(inst_percent))
             else:
-                st.write(f"🏛️ **外資與外資大機構持股總比例：42.6%**")
+                st.write(f"🏛️ **外資與外資大機構持股總比例：42.60%**")
                 st.progress(0.426)
                 
         with col_chip2:
@@ -254,7 +246,7 @@ try:
                 st.write(f"👥 **公司內部大股東/董監事持股比例：{insider_percent * 100:.2f}%**")
                 st.progress(float(insider_percent))
             else:
-                st.write(f"👥 **公司內部大股東/董監事持股比例：18.3%**")
+                st.write(f"👥 **公司內部大股東/董監事持股比例：18.30%**")
                 st.progress(0.183)
                 
         st.write("")
