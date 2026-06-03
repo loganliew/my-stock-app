@@ -38,7 +38,7 @@ slot_options = [
     "成交量 (VOL)",
     "MACD 技術指標",
     "KD 隨機指標",
-    "RSI 相對強弱指標",
+    "RSI 相উট對強弱指標",
     "❌ 隱藏此軌道"
 ]
 
@@ -197,7 +197,7 @@ try:
                         hide_index=True
                     )
                 with q_col2:
-                    st.write(" Bars & Lines **每一季營收與 EPS 多空走勢圖**：")
+                    st.write("📈 **每一季營收與 EPS 多空走勢圖**：")
                     fig_q = make_subplots(specs=[[{"secondary_y": True}]])
                     plot_df = df_goodinfo_matrix.fillna(0)
                     
@@ -213,7 +213,7 @@ try:
                 st.info("💡 **季度財報提示**：當前個股屬於海外美股標的，或在地數據源防禦牆正在阻擋。下方的實時價格技術圖表已完美加載，可照常進行波段操盤分析。")
 
         # =================================================================
-        # 📈 互動式 K 線圖與五大技術指標系統（完美保留運作）
+        # 📈 互動式 K 線圖與五大技術指標系統
         # =================================================================
         st.markdown("---")
         df = df_all.tail(250).copy()
@@ -230,9 +230,11 @@ try:
         
         fig.add_trace(go.Candlestick(x=df.index, open=df["Open"], high=df["High"], low=df["Low"], close=df["Close"], name="K線",
             increasing=dict(fillcolor="#FF3333", line=dict(color="#FF3333")), decreasing=dict(fillcolor="#00AA00", line=dict(color="#00AA00"))), row=1, col=1)
+        
         fig.add_trace(go.Scatter(x=df.index, y=df["MA5"], line=dict(color="#B38F00", width=1.5), name="5日線"), row=1, col=1)
         fig.add_trace(go.Scatter(x=df.index, y=df["MA10"], line=dict(color="#008B8B", width=1.5), name="10日線"), row=1, col=1)
-        fig.add_trace(go.Scatter(x=df.index, y=df["MA30"], line=dict(color="#7A4D99", width=1.8), width=1.5, name="30日線"), row=1, col=1)
+        # 🔥 Bug 已修正：多餘的 width=1.5 已經移除！
+        fig.add_trace(go.Scatter(x=df.index, y=df["MA30"], line=dict(color="#7A4D99", width=1.8), name="30日線"), row=1, col=1)
 
         if show_bb:
             fig.add_trace(go.Scatter(x=df.index, y=df["BB_Up"], line=dict(color="rgba(173, 216, 230, 0.5)", width=1, dash="dot"), name="布林上軌"), row=1, col=1)
