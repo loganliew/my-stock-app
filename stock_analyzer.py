@@ -4,13 +4,12 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import streamlit as st
 import yfinance as yf
-from FinMind.data import DataLoader
 
 # =================================================================
 # 🎨 網頁基本設定
 # =================================================================
 st.set_page_config(layout="wide", page_title="專業台美股籌碼分析系統")
-st.title("📊 專業互動式股票分析系統 (100% 真實官方財報矩陣版)")
+st.title("📊 專業互動式股票分析系統 (100% 網路動態真實數據版)")
 
 # =================================================================
 # ⚙️ 核心功能：手動輸入股票代號
@@ -57,13 +56,13 @@ start_date = end_date - datetime.timedelta(days=3 * 365)
 
 # --- K 線資料載入與智慧中文名稱查找 ---
 @st.cache_data
-def load_stock_history(sid, start, end, is_tw):
+def load_stock_history(sid, start, end):
     ticker = yf.Ticker(sid)
     df = ticker.history(start=start, end=end)
     if df.empty:
-        return pd.DataFrame(), sid, {}
+        return pd.DataFrame(), sid, {}, pd.DataFrame()
 
-    # 技術指標計算
+    # 1. 技術指標計算
     df["MA5"] = df["Close"].rolling(window=5).mean()
     df["MA10"] = df["Close"].rolling(window=10).mean()
     df["MA30"] = df["Close"].rolling(window=30).mean()
@@ -99,147 +98,106 @@ def load_stock_history(sid, start, end, is_tw):
     }
 
     s_name = None
-    pure_id = sid.replace(".TW", "")
-    
     info_dict = {}
+    quarter_stmt = pd.DataFrame()
+    
+    # 100% 透過網路即時向 Yahoo 伺服器請求 info 快取與季度財報
     try:
         info_dict = ticker.info
+        s_name = backup_zh_dict.get(sid, info_dict.get("shortName") or info_dict.get("longName") or sid)
+        # 即時向網路上撈取原始季度損益表
+        quarter_stmt = ticker.get_income_stmt(freq='quarterly')
     except Exception:
-        pass
+        s_name = backup_zh_dict.get(sid, sid)
 
-    if is_tw:
-        if sid in backup_zh_dict:
-            s_name = backup_zh_dict[sid]
-        else:
-            try:
-                fm_loader = DataLoader()
-                stock_info_df = fm_loader.taiwan_stock_info()
-                if not stock_info_df.empty:
-                    matched = stock_info_df[stock_info_df["stock_id"] == pure_id]
-                    if not matched.empty:
-                        s_name = matched["stock_name"].iloc[0]
-            except Exception:
-                pass
-            
-    if not s_name:
-        raw_info_name = info_dict.get("shortName") or info_dict.get("longName") or sid
-        if "COMPAL" in str(raw_info_name).upper(): s_name = "仁寶"
-        elif "HON HAI" in str(raw_info_name).upper() or "FOXCONN" in str(raw_info_name).upper(): s_name = "鴻海"
-        else: s_name = str(raw_info_name)
-        
-    return df, s_name, info_dict
+    return df, s_name, info_dict, quarter_stmt
 
 
 try:
-    df_all, stock_name, stock_info = load_stock_history(stock_id, start_date, end_date, is_tw_stock)
+    # 讀取網路即時資料
+    df_all, stock_name, stock_info, df_quarter_stmt = load_stock_history(stock_id, start_date, end_date)
 
     if df_all.empty:
         st.error(f"❌ 找不到股票代號 '{stock_input}' 的 K 線資料。")
     else:
         # =================================================================
-        # 💵 基本面區
+        # 💵 基本面核心快取看板
         # =================================================================
         st.subheader(f"💵 {stock_name} ({stock_id}) 歷史基本面財報動態")
         
         is_etf = is_tw_stock and (stock_input.startswith("00") or len(stock_input) >= 5)
         
         if is_etf:
-            st.info(f"💡 提示：{stock_name} ({stock_id}) 屬於指數型基金 (ETF)，故無單季個股財務數據。")
+            st.info(f"💡 提示：{stock_name} ({stock_id}) 屬於指數型基金 (ETF)，故無個股財務數據。")
         else:
             col1, col2, col3 = st.columns(3)
             with col1:
-                trailing_eps = stock_info.get("trailingEps", None)
-                if trailing_eps:
-                    st.metric(label="📊 過去四季確認累積 EPS", value=f"{trailing_eps:.2f} 元")
-                else:
-                    st.metric(label="📊 過去四季確認累積 EPS", value="1.33 元")
+                trailing_eps = stock_info.get("trailingEps", None) if stock_info else None
+                st.metric(label="📊 過去四季確認累積 EPS", value=f"{trailing_eps:.2f} 元" if trailing_eps else "❌ 網路未回傳")
             with col2:
-                total_revenue = stock_info.get("totalRevenue", None)
-                if total_revenue:
-                    st.metric(label="📈 企業最新揭露年度總營收", value=f"{total_revenue / 100000000:.2f} 億元")
-                else:
-                    st.metric(label="📈 企業最新揭露年度總營收", value="7,575.1 億元")
+                total_revenue = stock_info.get("totalRevenue", None) if stock_info else None
+                st.metric(label="📈 企業最新年度總營收", value=f"{total_revenue / 100000000:.2f} 億元" if total_revenue else "❌ 網路未回傳")
             with col3:
-                pe_ratio = stock_info.get("trailingPE", None)
-                if pe_ratio:
-                    st.metric(label="🔍 當前個股動態本益比", value=f"{pe_ratio:.1f} 倍")
-                else:
-                    st.metric(label="🔍 當前個股動態本益比", value="27.8 倍")
+                pe_ratio = stock_info.get("trailingPE", None) if stock_info else None
+                st.metric(label="🔍 當前個股動態本益比", value=f"{pe_ratio:.1f} 倍" if pe_ratio else "❌ 網路未回傳")
 
             # =================================================================
-            # 🔥 終極校正：100% 官方真實季度財報矩陣資料庫 (包含 2024Q1 ~ 2026Q1)
+            # 📅 🔥 100% 網路真實數據：季度 EPS 與季度營收解析
             # =================================================================
             st.write("")
-            st.markdown("### 📅 去年 vs 今年：每一季度詳細財報對比矩陣 (真實官方核定版)")
+            st.markdown("### 📅 去年 vs 今年：每一季度詳細財報對比矩陣 (真實網路觀測)")
             
-            # 預設矩陣資料：【🔥 100% 真實仁寶 2324 數據】
-            quarter_data = {
-                "季度": ["2024 Q1", "2024 Q2", "2024 Q3", "2024 Q4", "2025 Q1", "2025 Q2", "2025 Q3", "2025 Q4", "2026 Q1"],
-                "單季 EPS (元)": [0.43, 0.66, 0.77, 0.44, 0.50, 0.11, 0.45, 0.32, 0.45],
-                "單季營收 (億元)": [1991.2, 2372.1, 2443.2, 2291.6, 1991.0, 1804.0, 1871.2, 1908.5, 2013.0]
-            }
+            has_valid_matrix = False
             
-            # 【🔥 100% 真實台積電 2330 數據】
-            if "2330" in stock_id:
-                quarter_data = {
-                    "季度": ["2024 Q1", "2024 Q2", "2024 Q3", "2024 Q4", "2025 Q1", "2025 Q2", "2025 Q3", "2025 Q4", "2026 Q1"],
-                    "單季 EPS (元)": [8.70, 9.53, 12.54, 11.45, 11.80, 12.10, 14.30, 15.10, 15.60],
-                    "單季營收 (億元)": [5967.4, 6735.1, 7596.9, 7200.5, 7420.0, 7850.0, 8910.0, 9210.0, 9430.0]
-                }
-            # 【🔥 100% 真實鴻海 2317 數據】
-            elif "2317" in stock_id:
-                quarter_data = {
-                    "季度": ["2024 Q1", "2024 Q2", "2024 Q3", "2024 Q4", "2025 Q1", "2025 Q2", "2025 Q3", "2025 Q4", "2026 Q1"],
-                    "單季 EPS (元)": [1.59, 2.52, 3.43, 3.83, 2.10, 2.80, 3.90, 4.20, 3.10],
-                    "單季營收 (億元)": [13240.1, 15502.3, 18540.5, 18521.0, 14210.0, 16100.0, 19100.0, 21100.0, 15800.0]
-                }
-            # 【🔥 100% 真實廣達 2382 數據】
-            elif "2382" in stock_id:
-                quarter_data = {
-                    "季度": ["2024 Q1", "2024 Q2", "2024 Q3", "2024 Q4", "2025 Q1", "2025 Q2", "2025 Q3", "2025 Q4", "2026 Q1"],
-                    "單季 EPS (元)": [3.13, 3.72, 4.31, 3.28, 3.80, 4.20, 5.10, 4.80, 4.90],
-                    "單季營收 (億元)": [2589.4, 3099.5, 3245.1, 2884.3, 2910.0, 3450.0, 3980.0, 3760.0, 3620.0]
-                }
-            # 美股或其餘不支援台股
-            elif not stock_info.get("trailingEps") is None:
-                base_eps = stock_info.get("trailingEps") / 4
-                base_rev = (stock_info.get("totalRevenue") or 40000000000) / 100000000 / 4
-                quarter_data = {
-                    "季度": ["2024 Q3", "2024 Q4", "2025 Q1", "2025 Q2", "2025 Q3", "2025 Q4", "2026 Q1"],
-                    "單季 EPS (元)": [base_eps*0.95, base_eps*0.9, base_eps*1.1, base_eps*1.2, base_eps*1.3, base_eps*1.15, base_eps*1.25],
-                    "單季營收 (億元)": [base_rev*1.1, base_rev*1.05, base_rev*1.15, base_rev*1.25, base_rev*1.3, base_rev*1.2, base_rev*1.35]
-                }
-
-            df_quarters = pd.DataFrame(quarter_data)
-            
-            q_col1, q_col2 = st.columns([4, 6])
-            
-            with q_col1:
-                st.write("📊 **每季財務明細數據表**：")
-                st.dataframe(
-                    df_quarters.style.format({
-                        "單季 EPS (元)": "{:.2f}",
-                        "單季營收 (億元)": "{:,.1f}"
-                    }),
-                    use_container_width=True,
-                    hide_index=True
-                )
+            # 檢查網路上撈回來的 df_quarter_stmt 是否有資料
+            if df_quarter_stmt is not None and not df_quarter_stmt.empty:
+                # 尋找營收與 EPS 所在的列
+                rev_rows = [idx for idx in df_quarter_stmt.index if "Total Revenue" in str(idx) or "Operating Revenue" in str(idx)]
+                eps_rows = [idx for idx in df_quarter_stmt.index if "Diluted EPS" in str(idx) or "Basic EPS" in str(idx)]
                 
-            with q_col2:
-                st.write("📈 **每一季營收與 EPS 走勢圖**：")
-                fig_q = make_subplots(specs=[[{"secondary_y": True}]])
-                fig_q.add_trace(go.Bar(x=df_quarters["季度"], y=df_quarters["單季營收 (億元)"], name="單季營收 (億元)", marker_color="#4682B4", opacity=0.85), secondary_y=False)
-                fig_q.add_trace(go.Scatter(x=df_quarters["季度"], y=df_quarters["單季 EPS (元)"], name="單季 EPS (元)", mode="lines+markers", line=dict(color="#FF6347", width=3), marker=dict(size=8)), secondary_y=True)
-                
-                fig_q.update_layout(template="plotly_dark", height=240, margin=dict(l=10, r=10, t=10, b=10), showlegend=True, legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
-                fig_q.update_yaxes(title_text="營收 (億)", secondary_y=False)
-                fig_q.update_yaxes(title_text="EPS (元)", secondary_y=True)
-                st.plotly_chart(fig_q, use_container_width=True)
-
-            st.caption("⚙️ *數據防禦提示：本季度明細已全面置換為「官方核定之真實財務矩陣」，數據完全精準無誤。*")
+                if rev_rows and eps_rows:
+                    try:
+                        # 提取最近 6 季的資料並轉置
+                        sub_rev = df_quarter_stmt.loc[rev_rows[0]].iloc[:6].iloc[::-1]
+                        sub_eps = df_quarter_stmt.loc[eps_rows[0]].iloc[:6].iloc[::-1]
+                        
+                        # 解析日期標籤
+                        dates = [pd.to_datetime(c).strftime("%Y-%m-%d") for c in sub_rev.index]
+                        rev_vals = [float(v) / 100000000 for v in sub_rev.values] # 轉為億元
+                        eps_vals = [float(v) for v in sub_eps.values]
+                        
+                        # 建立畫面的真實 DataFrame
+                        df_real_matrix = pd.DataFrame({
+                            "季度時戳": dates,
+                            "單季 EPS (元)": eps_vals,
+                            "單季營收 (億元)": rev_vals
+                        })
+                        
+                        # 渲染畫面
+                        q_col1, q_col2 = st.columns([4, 6])
+                        with q_col1:
+                            st.write("官方原始網路季度數據：")
+                            st.dataframe(df_real_matrix.style.format({"單季 EPS (元)": "{:.2f}", "單季營收 (億元)": "{:,.1f}"}), use_container_width=True, hide_index=True)
+                        with q_col2:
+                            st.write("動態真實財報走勢圖：")
+                            fig_q = make_subplots(specs=[[{"secondary_y": True}]])
+                            fig_q.add_trace(go.Bar(x=df_real_matrix["季度時戳"], y=df_real_matrix["單季營收 (億元)"], name="單季營收 (億元)", marker_color="#4682B4", opacity=0.85), secondary_y=False)
+                            fig_q.add_trace(go.Scatter(x=df_real_matrix["季度時戳"], y=df_real_matrix["單季 EPS (元)"], name="單季 EPS (元)", mode="lines+markers", line=dict(color="#FF6347", width=3)), secondary_y=True)
+                            fig_q.update_layout(template="plotly_dark", height=240, margin=dict(l=10, r=10, t=10, b=10))
+                            fig_q.update_yaxes(title_text="營收 (億)", secondary_y=False)
+                            fig_q.update_yaxes(title_text="EPS (元)", secondary_y=True)
+                            st.plotly_chart(fig_q, use_container_width=True)
+                            
+                        has_valid_matrix = True
+                    except Exception:
+                        pass
+            
+            # 🔥 誠實告白分流：網路上真的拿不到
+            if not has_valid_matrix:
+                st.warning("⚠️ 國際 Yahoo 財務庫目前未回傳該個股的季度詳細明細（這在台股非美標的十分常見）。我們需要另尋數據源或更換 API。")
 
         # =================================================================
-        # 📈 互動式 K 線圖與指標（維持原樣，完美運作）
+        # 📈 互動式 K 線圖：主副軌道動態渲染 (完美保留)
         # =================================================================
         st.markdown("---")
         df = df_all.tail(250).copy()
@@ -288,13 +246,13 @@ try:
         st.plotly_chart(fig, use_container_width=True)
 
         # =================================================================
-        # 👥 籌碼大終結
+        # 👥 籌碼大終結：100% 真實大戶持股結構 (不搞數字除法)
         # =================================================================
         st.markdown("---")
         st.subheader(f"👥 {stock_name} ({stock_id}) 核心法人大戶持股結構")
         
-        inst_percent = stock_info.get("heldPercentInstitutions", None)
-        insider_percent = stock_info.get("heldPercentInsiders", None)
+        inst_percent = stock_info.get("heldPercentInstitutions", None) if stock_info else None
+        insider_percent = stock_info.get("heldPercentInsiders", None) if stock_info else None
         
         col_chip1, col_chip2 = st.columns(2)
         with col_chip1:
@@ -302,18 +260,13 @@ try:
                 st.write(f"🏛️ **外資與外資大機構持股總比例：{inst_percent * 100:.2f}%**")
                 st.progress(float(inst_percent))
             else:
-                st.write(f"🏛️ **外資與外資大機構持股總比例：42.60%**")
-                st.progress(0.426)
+                st.write(f"🏛️ **外資與外資大機構持股總比例：❌ 網路未回傳**")
         with col_chip2:
             if insider_percent:
                 st.write(f"👥 **公司內部大股東/董監事持股比例：{insider_percent * 100:.2f}%**")
                 st.progress(float(insider_percent))
             else:
-                st.write(f"👥 **公司內部大股東/董監事持股比例：18.30%**")
-                st.progress(0.183)
-                
-        st.write("")
-        st.info("💡 **大戶籌碼實戰教學**：當「外資機構持股比例」和「內部大股東持股比例」加總越高（例如超過 50%），代表籌碼高度集中於強大的主力大戶手中，這類股票在市場上往往具有極強的抗跌性，且容易受到大波段行情青睞！")
+                st.write(f"👥 **公司內部大股東/董監事持股比例：❌ 網路未回傳**")
 
 except Exception as e:
     st.error(f"系統執行錯誤，錯誤訊息: {e}")
