@@ -9,13 +9,13 @@ import yfinance as yf
 # 🎨 網頁基本設定
 # =================================================================
 st.set_page_config(layout="wide", page_title="專業台美股籌碼分析系統")
-st.title("📊 專業互動式股票分析系統 (100% 網路動態真實數據版)")
+st.title("📊 專業互動式股票分析系統 (100% 真實網路季度財報版)")
 
 # =================================================================
 # ⚙️ 核心功能：手動輸入股票代號
 # =================================================================
 stock_input = st.text_input(
-    "🔍 請輸入股票代號（台股直接打數字如 2324、2308；美股直接打英文如 NVDA），輸入完請按 Enter：",
+    "🔍 請輸入股票代號（台股直接打數字如 2324、2303；美股直接打英文如 NVDA），輸入完請按 Enter：",
     value="2324",
 ).strip()
 
@@ -60,9 +60,9 @@ def load_stock_history(sid, start, end):
     ticker = yf.Ticker(sid)
     df = ticker.history(start=start, end=end)
     if df.empty:
-        return pd.DataFrame(), sid, {}, pd.DataFrame()
+        return pd.DataFrame(), sid, pd.DataFrame()
 
-    # 1. 技術指標計算
+    # 技術指標計算
     df["MA5"] = df["Close"].rolling(window=5).mean()
     df["MA10"] = df["Close"].rolling(window=10).mean()
     df["MA30"] = df["Close"].rolling(window=30).mean()
@@ -93,111 +93,105 @@ def load_stock_history(sid, start, end):
 
     backup_zh_dict = {
         "2324.TW": "仁寶", "2330.TW": "台積電", "2303.TW": "聯電", "2317.TW": "鴻海",
-        "2308.TW": "台達電", "2454.TW": "聯發科", "2357.TW": "華碩", "2382.TW": "廣達",
-        "0050.TW": "元大台灣50", "0056.TW": "元大高股息", "00878.TW": "國泰永續高股息"
+        "2308.TW": "台達電", "2454.TW": "聯發科", "2357.TW": "華碩", "2382.TW": "廣達"
     }
 
-    s_name = None
-    info_dict = {}
+    s_name = backup_zh_dict.get(sid)
     quarter_stmt = pd.DataFrame()
     
-    # 100% 透過網路即時向 Yahoo 伺服器請求 info 快取與季度財報
     try:
-        info_dict = ticker.info
-        s_name = backup_zh_dict.get(sid, info_dict.get("shortName") or info_dict.get("longName") or sid)
-        # 即時向網路上撈取原始季度損益表
+        # 即時動態向網路抓取官方發布的完整季度表
         quarter_stmt = ticker.get_income_stmt(freq='quarterly')
+        if s_name is None:
+            info_dict = ticker.info
+            s_name = info_dict.get("shortName") or info_dict.get("longName") or sid
     except Exception:
-        s_name = backup_zh_dict.get(sid, sid)
+        if s_name is None: s_name = sid
 
-    return df, s_name, info_dict, quarter_stmt
+    return df, s_name, quarter_stmt
 
 
 try:
-    # 讀取網路即時資料
-    df_all, stock_name, stock_info, df_quarter_stmt = load_stock_history(stock_id, start_date, end_date)
+    # 執行動態網路資料下載
+    df_all, stock_name, df_quarter_stmt = load_stock_history(stock_id, start_date, end_date)
 
     if df_all.empty:
         st.error(f"❌ 找不到股票代號 '{stock_input}' 的 K 線資料。")
     else:
         # =================================================================
-        # 💵 基本面核心快取看板
+        # 💵 🔥 基本面區：完全移除最上方三大卡片，直接列出每季真資料
         # =================================================================
-        st.subheader(f"💵 {stock_name} ({stock_id}) 歷史基本面財報動態")
+        st.subheader(f"💵 {stock_name} ({stock_id}) 歷史季度財報動態")
         
         is_etf = is_tw_stock and (stock_input.startswith("00") or len(stock_input) >= 5)
         
         if is_etf:
-            st.info(f"💡 提示：{stock_name} ({stock_id}) 屬於指數型基金 (ETF)，故無個股財務數據。")
+            st.info(f"💡 提示：{stock_name} ({stock_id}) 屬於指數型基金 (ETF)，故無單季財務數據。")
         else:
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                trailing_eps = stock_info.get("trailingEps", None) if stock_info else None
-                st.metric(label="📊 過去四季確認累積 EPS", value=f"{trailing_eps:.2f} 元" if trailing_eps else "❌ 網路未回傳")
-            with col2:
-                total_revenue = stock_info.get("totalRevenue", None) if stock_info else None
-                st.metric(label="📈 企業最新年度總營收", value=f"{total_revenue / 100000000:.2f} 億元" if total_revenue else "❌ 網路未回傳")
-            with col3:
-                pe_ratio = stock_info.get("trailingPE", None) if stock_info else None
-                st.metric(label="🔍 當前個股動態本益比", value=f"{pe_ratio:.1f} 倍" if pe_ratio else "❌ 網路未回傳")
-
-            # =================================================================
-            # 📅 🔥 100% 網路真實數據：季度 EPS 與季度營收解析
-            # =================================================================
-            st.write("")
-            st.markdown("### 📅 去年 vs 今年：每一季度詳細財報對比矩陣 (真實網路觀測)")
+            st.markdown("#### 📅 去年 vs 今年：每一季度詳細財報對比矩陣")
             
-            has_valid_matrix = False
+            has_matrix_success = False
             
-            # 檢查網路上撈回來的 df_quarter_stmt 是否有資料
+            # 100% 檢查原始網路回傳的損益表結構
             if df_quarter_stmt is not None and not df_quarter_stmt.empty:
-                # 尋找營收與 EPS 所在的列
-                rev_rows = [idx for idx in df_quarter_stmt.index if "Total Revenue" in str(idx) or "Operating Revenue" in str(idx)]
-                eps_rows = [idx for idx in df_quarter_stmt.index if "Diluted EPS" in str(idx) or "Basic EPS" in str(idx)]
+                # 智慧比對國際會計準則常用標籤
+                revenue_keys = ["Total Revenue", "Operating Revenue", "Gross Revenue"]
+                eps_keys = ["Diluted EPS", "Basic EPS", "Earnings Per Share"]
                 
-                if rev_rows and eps_rows:
+                rev_row_name = next((idx for idx in df_quarter_stmt.index if any(k in str(idx) for k in revenue_keys)), None)
+                eps_row_name = next((idx for idx in df_quarter_stmt.index if any(k in str(idx) for k in eps_keys)), None)
+                
+                if rev_row_name and eps_row_name:
                     try:
-                        # 提取最近 6 季的資料並轉置
-                        sub_rev = df_quarter_stmt.loc[rev_rows[0]].iloc[:6].iloc[::-1]
-                        sub_eps = df_quarter_stmt.loc[eps_rows[0]].iloc[:6].iloc[::-1]
+                        # 擷取網路上最新的 8 個季度（正好涵蓋去年與今年）並進行時間由遠到近排序
+                        raw_rev = df_quarter_stmt.loc[rev_row_name].iloc[:8].iloc[::-1]
+                        raw_eps = df_quarter_stmt.loc[eps_row_name].iloc[:8].iloc[::-1]
                         
-                        # 解析日期標籤
-                        dates = [pd.to_datetime(c).strftime("%Y-%m-%d") for c in sub_rev.index]
-                        rev_vals = [float(v) / 100000000 for v in sub_rev.values] # 轉為億元
-                        eps_vals = [float(v) for v in sub_eps.values]
+                        # 格式化日期與單位轉換
+                        dates_list = [pd.to_datetime(d).strftime("%Y-%m-%d") for d in raw_rev.index]
+                        rev_in_hundred_millions = [float(v) / 100000000 for v in raw_rev.values] # 轉為億元台幣
+                        eps_real_vals = [float(v) for v in raw_eps.values]
                         
-                        # 建立畫面的真實 DataFrame
-                        df_real_matrix = pd.DataFrame({
-                            "季度時戳": dates,
-                            "單季 EPS (元)": eps_vals,
-                            "單季營收 (億元)": rev_vals
+                        # 產生 100% 真實網路組裝表格
+                        df_dynamic_financial = pd.DataFrame({
+                            "季度截止日": dates_list,
+                            "單季 EPS (元)": eps_real_vals,
+                            "單季營收 (億元)": rev_in_hundred_millions
                         })
                         
-                        # 渲染畫面
+                        # 進行網頁左右欄精密排版
                         q_col1, q_col2 = st.columns([4, 6])
                         with q_col1:
-                            st.write("官方原始網路季度數據：")
-                            st.dataframe(df_real_matrix.style.format({"單季 EPS (元)": "{:.2f}", "單季營收 (億元)": "{:,.1f}"}), use_container_width=True, hide_index=True)
+                            st.write("📋 **真實動態網路季度報表**：")
+                            st.dataframe(
+                                df_dynamic_financial.style.format({
+                                    "單季 EPS (元)": "{:.2f}",
+                                    "單季營收 (億元)": "{:,.1f}"
+                                }),
+                                use_container_width=True,
+                                hide_index=True
+                            )
                         with q_col2:
-                            st.write("動態真實財報走勢圖：")
+                            st.write("📊 **每一季營收與 EPS 多空走勢圖**：")
                             fig_q = make_subplots(specs=[[{"secondary_y": True}]])
-                            fig_q.add_trace(go.Bar(x=df_real_matrix["季度時戳"], y=df_real_matrix["單季營收 (億元)"], name="單季營收 (億元)", marker_color="#4682B4", opacity=0.85), secondary_y=False)
-                            fig_q.add_trace(go.Scatter(x=df_real_matrix["季度時戳"], y=df_real_matrix["單季 EPS (元)"], name="單季 EPS (元)", mode="lines+markers", line=dict(color="#FF6347", width=3)), secondary_y=True)
-                            fig_q.update_layout(template="plotly_dark", height=240, margin=dict(l=10, r=10, t=10, b=10))
-                            fig_q.update_yaxes(title_text="營收 (億)", secondary_y=False)
+                            fig_q.add_trace(go.Bar(x=df_dynamic_financial["季度截止日"], y=df_dynamic_financial["單季營收 (億元)"], name="單季營收 (億元)", marker_color="#34495E", opacity=0.85), secondary_y=False)
+                            fig_q.add_trace(go.Scatter(x=df_dynamic_financial["季度截止日"], y=df_dynamic_financial["單季 EPS (元)"], name="單季 EPS (元)", mode="lines+markers", line=dict(color="#E74C3C", width=3), marker=dict(size=7)), secondary_y=True)
+                            
+                            fig_q.update_layout(template="plotly_dark", height=250, margin=dict(l=10, r=10, t=10, b=10), showlegend=True, legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+                            fig_q.update_yaxes(title_text="營收 (億元)", secondary_y=False)
                             fig_q.update_yaxes(title_text="EPS (元)", secondary_y=True)
                             st.plotly_chart(fig_q, use_container_width=True)
                             
-                        has_valid_matrix = True
+                        has_matrix_success = True
                     except Exception:
                         pass
             
-            # 🔥 誠實告白分流：網路上真的拿不到
-            if not has_valid_matrix:
-                st.warning("⚠️ 國際 Yahoo 財務庫目前未回傳該個股的季度詳細明細（這在台股非美標的十分常見）。我們需要另尋數據源或更換 API。")
+            # 若網路當下真的回傳空值，誠實回報，不給予任何人工偽造數據
+            if not has_matrix_success:
+                st.warning("⚠️ 提示：當前即時網路接口（Yahoo 財務庫）未回傳本個股的季度詳細損益表欄位。若要取得本標的之每一季 EPS，我們需要為系統升級更換其他開放資料庫 API。")
 
         # =================================================================
-        # 📈 互動式 K 線圖：主副軌道動態渲染 (完美保留)
+        # 📈 互動式 K 線圖與指標（完美保留運作）
         # =================================================================
         st.markdown("---")
         df = df_all.tail(250).copy()
@@ -244,29 +238,6 @@ try:
         six_months_ago = datetime.date.today() - datetime.timedelta(days=180)
         fig.update_xaxes(range=[six_months_ago, datetime.date.today()])
         st.plotly_chart(fig, use_container_width=True)
-
-        # =================================================================
-        # 👥 籌碼大終結：100% 真實大戶持股結構 (不搞數字除法)
-        # =================================================================
-        st.markdown("---")
-        st.subheader(f"👥 {stock_name} ({stock_id}) 核心法人大戶持股結構")
-        
-        inst_percent = stock_info.get("heldPercentInstitutions", None) if stock_info else None
-        insider_percent = stock_info.get("heldPercentInsiders", None) if stock_info else None
-        
-        col_chip1, col_chip2 = st.columns(2)
-        with col_chip1:
-            if inst_percent:
-                st.write(f"🏛️ **外資與外資大機構持股總比例：{inst_percent * 100:.2f}%**")
-                st.progress(float(inst_percent))
-            else:
-                st.write(f"🏛️ **外資與外資大機構持股總比例：❌ 網路未回傳**")
-        with col_chip2:
-            if insider_percent:
-                st.write(f"👥 **公司內部大股東/董監事持股比例：{insider_percent * 100:.2f}%**")
-                st.progress(float(insider_percent))
-            else:
-                st.write(f"👥 **公司內部大股東/董監事持股比例：❌ 網路未回傳**")
 
 except Exception as e:
     st.error(f"系統執行錯誤，錯誤訊息: {e}")
