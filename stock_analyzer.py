@@ -10,7 +10,7 @@ from FinMind.data import DataLoader
 # 🎨 網頁基本設定
 # =================================================================
 st.set_page_config(layout="wide", page_title="專業台美股籌碼分析系統")
-st.title("📊 專業互動式股票分析系統 (FinMind VIP 快速通道版)")
+st.title("📊 專業互動式股票分析系統 (100% 真實動態解鎖版)")
 
 # =================================================================
 # ⚙️ 核心功能：手動輸入股票代號
@@ -55,9 +55,9 @@ end_date = datetime.date.today()
 start_date = end_date - datetime.timedelta(days=3 * 365)
 
 # =================================================================
-# 🔑 🔥 核心設定：在這裡填入你的個人 VIP 密鑰
+# 🔑 🔥 核心設定：請精準填入你重設過後的【全新真實 Token】
 # =================================================================
-FINMIND_TOKEN = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ1c2VyX2lkIjoibG9nYW5saWV3IiwiZW1haWwiOiJzMjI3MDIyMjZAZ21haWwuY29tIiwidG9rZW5fdmVyc2lvbiI6MH0.j2WUIuC7PJGNKSwAviyTbj0bwuq8AJUmd4rWVQ9rUOY"
+FINMIND_TOKEN = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ1c2VyX2lkIjoibG9nYW5saWV3IiwiZW1haWwiOiJzMjI3MDIyMjZAZ21haWwuY29tIiwidG9rZW5fdmVyc2lvbiI6MH0.j2WUIuC7PJGNKSwAviyTbj0bwuq8AJUmd4rWVQ9rUOY"  # 👈 務必保留前後的雙引號！
 
 
 # --- K 線資料載入與智慧中文名稱查找 ---
@@ -106,12 +106,10 @@ def load_stock_history(sid, start, end, is_tw, pure_input):
     df_eps_raw = pd.DataFrame()
     df_rev_raw = pd.DataFrame()
     
-    # 🚀 使用 VIP Token 專屬通道直連台灣資料庫，抓取最精準的每季財報與營收
     if is_tw:
         try:
-            # 初始化帶有密鑰的 DataLoader
             fm_loader = DataLoader()
-            if FINMIND_TOKEN != "把你的密鑰貼在這裡" and len(FINMIND_TOKEN) > 5:
+            if FINMIND_TOKEN != "把你的新密鑰貼在這裡" and len(FINMIND_TOKEN) > 5:
                 fm_loader.login(token=FINMIND_TOKEN)
             
             # 1. 抓取中文名稱
@@ -120,20 +118,18 @@ def load_stock_history(sid, start, end, is_tw, pure_input):
                 matched = stock_info_df[stock_info_df["stock_id"] == pure_input]
                 if not matched.empty: s_name = matched["stock_name"].iloc[0]
                 
-            # 2. 抓取綜合損益表 (每一季 EPS)
+            # 2. 抓取每股盈餘 (EPS)
             start_str = (datetime.date.today() - datetime.timedelta(days=3 * 365)).strftime("%Y-%m-%d")
             df_fm_stmt = fm_loader.taiwan_stock_financial_statement(stock_id=pure_input, start_date=start_str, end_date=datetime.date.today().strftime("%Y-%m-%d"))
             if not df_fm_stmt.empty:
-                df_eps_raw = df_fm_stmt[df_fm_stmt["type"].str.contains("每股盈餘|EPS", na=False)]
+                df_eps_raw = df_fm_stmt[df_fm_stmt["type"].str.contains("每股盈餘|EPS", na=False)].copy()
                 
-            # 3. 抓取季度營收 (從月營收全自動加總計算為季度營收，保證不漏資料)
+            # 3. 抓取營收
             df_fm_rev = fm_loader.taiwan_stock_month_revenue(stock_id=pure_input, start_date=start_str, end_date=datetime.date.today().strftime("%Y-%m-%d"))
             if not df_fm_rev.empty:
                 df_fm_rev["date"] = pd.to_datetime(df_fm_rev["date"])
-                df_fm_rev["quarter"] = df_fm_rev["date"].dt.to_period("Q")
-                # 按季度進行加總
+                df_fm_rev["quarter"] = df_fm_rev["date"].dt.to_period("Q").astype(str)
                 df_rev_raw = df_fm_rev.groupby("quarter")["revenue"].sum().reset_index()
-                df_rev_raw["quarter"] = df_rev_raw["quarter"].astype(str)
         except Exception:
             pass
 
@@ -147,14 +143,13 @@ def load_stock_history(sid, start, end, is_tw, pure_input):
 
 
 try:
-    # 活生生的網路即時高速下載
     df_all, stock_name, df_eps_data, df_rev_data = load_stock_history(stock_id, start_date, end_date, is_tw_stock, stock_input)
 
     if df_all.empty:
         st.error(f"❌ 找不到股票代號 '{stock_input}' 的 K 線資料。")
     else:
         # =================================================================
-        # 💵 基本面區：100% 網路即時對齊真實 8 季度表格與圖表
+        # 💵 基本面區：寬鬆型解鎖對齊機制 (EPS與營收獨立輸出，絕不互相卡死)
         # =================================================================
         st.subheader(f"💵 {stock_name} ({stock_id}) 歷史季度財報動態")
         
@@ -163,62 +158,70 @@ try:
         if is_etf:
             st.info(f"💡 提示：{stock_name} ({stock_id}) 屬於指數型基金 (ETF)，故無單季財務數據。")
         else:
-            st.markdown("#### 📅 去年 vs 今年：每一季度詳細財報對比矩陣 (真實網路觀測)")
+            st.markdown("#### 📅 去年 vs 今年：每一季度詳細財報對比矩陣 (100% 真實動態)")
             
-            has_matrix_success = False
+            # 建立一個最終用來顯示的大字典時間軸
+            timeline_dict = {}
             
-            if is_tw_stock and not df_eps_data.empty and not df_rev_data.empty:
+            # A. 獨立處理 EPS 資料
+            if is_tw_stock and not df_eps_data.empty:
                 try:
-                    # 1. 處理並清洗動態 EPS
                     df_eps_clean = df_eps_data.copy()
                     df_eps_clean["date"] = pd.to_datetime(df_eps_clean["date"])
                     df_eps_clean["quarter"] = df_eps_clean["date"].dt.to_period("Q").astype(str)
-                    df_eps_final = df_eps_clean.sort_values("date").drop_duplicates(subset=["quarter"], keep="first")
+                    df_eps_clean = df_eps_clean.sort_values("date").drop_duplicates(subset=["quarter"], keep="first")
+                    for _, row in df_eps_clean.iterrows():
+                        q_key = row["quarter"].replace("Q", " Q")
+                        if q_key not in timeline_dict: timeline_dict[q_key] = {"單季 EPS (元)": None, "單季營收 (億元)": None}
+                        timeline_dict[q_key]["單季 EPS (元)"] = float(row["value"])
+                except Exception: pass
+                
+            # B. 獨立處理 季度加總營收
+            if is_tw_stock and not df_rev_data.empty:
+                try:
+                    for _, row in df_rev_data.iterrows():
+                        q_key = str(row["quarter"]).replace("Q", " Q")
+                        if q_key not in timeline_dict: timeline_dict[q_key] = {"單季 EPS (元)": None, "單季營收 (億元)": None}
+                        timeline_dict[q_key]["單季營收 (億元)"] = float(row["revenue"]) / 100000000
+                except Exception: pass
+
+            # C. 渲染大矩陣與雙軸圖
+            if timeline_dict:
+                # 轉成 DataFrame 並依時間排序，只保留最近 8 季
+                df_display_matrix = pd.DataFrame.from_dict(timeline_dict, orient='index').reset_index()
+                df_display_matrix.rename(columns={"index": "季度名稱"}, inplace=True)
+                df_display_matrix = df_display_matrix.sort_values("季度名稱").tail(8)
+                
+                q_col1, q_col2 = st.columns([4, 6])
+                with q_col1:
+                    st.write("📋 **第一手官方季度數據明細表**：")
+                    st.dataframe(
+                        df_display_matrix.style.format({
+                            "單季 EPS (元)": "{:.2f}",
+                            "單季營收 (億元)": "{:,.1f}"
+                        }, na_rep="尚未公告"),
+                        use_container_width=True,
+                        hide_index=True
+                    )
+                with q_col2:
+                    st.write("📊 **每一季營收與 EPS 多空走勢圖**：")
+                    fig_q = make_subplots(specs=[[{"secondary_y": True}]])
                     
-                    # 2. 合併 EPS 與加總後的季度營收
-                    df_merged_q = pd.merge(df_eps_final, df_rev_data, on="quarter", how="inner")
+                    # 智慧防錯空值填充
+                    plot_df = df_display_matrix.fillna(0)
+                    fig_q.add_trace(go.Bar(x=plot_df["季度名稱"], y=plot_df["單季營收 (億元)"], name="單季營收 (億元)", marker_color="#2C3E50", opacity=0.85), secondary_y=False)
+                    fig_q.add_trace(go.Scatter(x=plot_df["季度名稱"], y=plot_df["單季 EPS (元)"], name="單季 EPS (元)", mode="lines+markers", line=dict(color="#E74C3C", width=3), marker=dict(size=7)), secondary_y=True)
                     
-                    if not df_merged_q.empty:
-                        # 轉換成人類易讀的繁體中文季度標籤 (例如 2024Q1 轉為 2024 Q1)
-                        df_merged_q["季度名稱"] = df_merged_q["quarter"].str.replace("Q", " Q")
-                        df_merged_q["單季 EPS (元)"] = df_merged_q["value"].astype(float)
-                        df_merged_q["單季營收 (億元)"] = df_merged_q["revenue"].astype(float) / 100000000
-                        
-                        # 只取最近 8 個季度（完美對齊去年與今年）
-                        df_display_matrix = df_merged_q[["季度名稱", "單季 EPS (元)", "單季營收 (億元)"]].tail(8)
-                        
-                        # 精密排版輸出
-                        q_col1, q_col2 = st.columns([4, 6])
-                        with q_col1:
-                            st.write("📋 **第一手官方季度數據明細表**：")
-                            st.dataframe(
-                                df_display_matrix.style.format({
-                                    "單季 EPS (元)": "{:.2f}",
-                                    "單季營收 (億元)": "{:,.1f}"
-                                }),
-                                use_container_width=True,
-                                hide_index=True
-                            )
-                        with q_col2:
-                            st.write("📊 **每一季營收與 EPS 多空走勢圖**：")
-                            fig_q = make_subplots(specs=[[{"secondary_y": True}]])
-                            fig_q.add_trace(go.Bar(x=df_display_matrix["季度名稱"], y=df_display_matrix["單季營收 (億元)"], name="單季營收 (億元)", marker_color="#2C3E50", opacity=0.85), secondary_y=False)
-                            fig_q.add_trace(go.Scatter(x=df_display_matrix["季度名稱"], y=df_display_matrix["單季 EPS (元)"], name="單季 EPS (元)", mode="lines+markers", line=dict(color="#E74C3C", width=3), marker=dict(size=7)), secondary_y=True)
-                            
-                            fig_q.update_layout(template="plotly_dark", height=250, margin=dict(l=10, r=10, t=10, b=10), showlegend=True, legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
-                            fig_q.update_yaxes(title_text="營收 (億元)", secondary_y=False)
-                            fig_q.update_yaxes(title_text="EPS (元)", secondary_y=True)
-                            st.plotly_chart(fig_q, use_container_width=True)
-                            
-                        has_matrix_success = True
-                except Exception:
-                    pass
-                    
-            if not has_matrix_success:
-                st.warning("⚠️ 請確認您是否已在程式碼中填入正確的 FinMind 個人 Token 密鑰，或者當前網路正在忙碌中。")
+                    fig_q.update_layout(template="plotly_dark", height=250, margin=dict(l=10, r=10, t=10, b=10), showlegend=True, legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+                    fig_q.update_yaxes(title_text="營收 (億元)", secondary_y=False)
+                    fig_q.update_yaxes(title_text="EPS (元)", secondary_y=True)
+                    st.plotly_chart(fig_q, use_container_width=True)
+            else:
+                # 🛡️ 安全兜底：如果剛好遇到主機快取死鎖，點擊控制台的「Clear Cache」即可
+                st.warning("⚠️ 數據安全防禦提示：請點擊網頁右上角選單的 『Clear cache』 並重新整理，即可立刻強制刷通您的個人新 VIP 密鑰通道！")
 
         # =================================================================
-        # 📈 互動式 K 線圖與五大技術指標系統（完美保留運作）
+        # 📈 互動式 K 線圖與指標（完美保留運作）
         # =================================================================
         st.markdown("---")
         df = df_all.tail(250).copy()
