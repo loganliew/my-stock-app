@@ -1,11 +1,9 @@
-name: 📈 台股全市場財報自動化中台
+name: 📈 台股全市場財報與月營收自動化中台
 
 on:
   schedule:
-    # 核心修改：從原本的每天一次，改成「每 2 個小時執行一次」
-    - cron: '0 */2 * * *' 
-  
-  workflow_dispatch: # 依然保留手動按鈕，方便我們隨時抽查
+    - cron: '0 */2 * * *' # 每 2 個小時執行一次衝刺
+  workflow_dispatch: # 保留手動按鈕
 
 jobs:
   run-etl:
@@ -24,18 +22,25 @@ jobs:
         python -m pip install --upgrade pip
         pip install pandas requests
 
-    - name: 🏃 執行全市場財報 ETL 腳本
+    - name: 🏃 執行【一號工人：歷史財報】
       run: |
         python scripts/update_data.py
+
+    - name: 🏃 執行【二號工人：每月營收】
+      run: |
+        python scripts/update_monthly_rev.py
 
     - name: 💾 自動存檔並推回 GitHub (Git Bot)
       run: |
         git config --local user.email "github-actions[bot]@users.noreply.github.com"
         git config --local user.name "github-actions[bot]"
+        
+        # 把 data 資料夾內產生的所有新 CSV 檔都抓起來
         git add data/ || true
+        
         if git diff --staged --quiet; then
           echo "資料無變更，跳過提交。"
         else
-          git commit -m "🤖 自動接力：擴充台股財報資料庫 [GitHub Actions]"
+          git commit -m "🤖 自動接力：擴充台股財報與月營收資料庫 [GitHub Actions]"
           git push
         fi
