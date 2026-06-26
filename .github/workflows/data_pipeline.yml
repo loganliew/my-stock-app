@@ -1,55 +1,41 @@
 name: 📈 台股全市場財報自動化中台
 
-# 設定觸發條件
 on:
-  # 1. 每天半夜自動執行 (UTC 時間 18:00 = 台灣時間凌晨 02:00)
   schedule:
-    - cron: '0 18 * * *'
+    # 核心修改：從原本的每天一次，改成「每 2 個小時執行一次」
+    - cron: '0 */2 * * *' 
   
-  # 2. 允許我們在 GitHub 網頁畫面上「手動點擊按鈕」立刻執行（方便除錯與實驗）
-  workflow_dispatch: 
+  workflow_dispatch: # 依然保留手動按鈕，方便我們隨時抽查
 
 jobs:
   run-etl:
-    runs-on: ubuntu-latest # 使用 GitHub 提供的最新 Linux 虛擬機
-
+    runs-on: ubuntu-latest
     steps:
-    # 步驟 1：把 GitHub 倉庫裡的程式碼複製到這台虛擬機上
     - name: 📥 複製專案程式碼
       uses: actions/checkout@v4
 
-    # 步驟 2：建立 Python 環境
     - name: 🐍 設定 Python 環境
       uses: actions/setup-python@v5
       with:
         python-version: '3.10'
 
-    # 步驟 3：安裝你程式碼需要的第三方套件
     - name: 📦 安裝必要套件
       run: |
         python -m pip install --upgrade pip
-        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-        # 確保虛擬機一定有這兩個套件
         pip install pandas requests
 
-    # 步驟 4：執行你的全市場搬磚工人
     - name: 🏃 執行全市場財報 ETL 腳本
       run: |
         python scripts/update_data.py
 
-    # 步驟 5：自動把產生出來的 tw_eps_revenue.csv 推回你的 GitHub 專案庫中
     - name: 💾 自動存檔並推回 GitHub (Git Bot)
       run: |
         git config --local user.email "github-actions[bot]@users.noreply.github.com"
         git config --local user.name "github-actions[bot]"
-        
-        # 把 data 資料夾內的新 CSV 加進暫存區
-        git add data/
-        
-        # 檢查檔案有沒有變更，有變更才提交，避免沒有新財報時報錯
+        git add data/ || true
         if git diff --staged --quiet; then
           echo "資料無變更，跳過提交。"
         else
-          git commit -m "🤖 自動更新：全市場最新台股財報資料 [GitHub Actions]"
+          git commit -m "🤖 自動接力：擴充台股財報資料庫 [GitHub Actions]"
           git push
         fi
