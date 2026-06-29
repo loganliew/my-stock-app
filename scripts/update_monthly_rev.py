@@ -120,7 +120,9 @@ def main():
     print("啟動【二號工人】，開始執行台股【月營收】ETL 任務...")
     
     all_stocks = get_all_tw_stocks()
-    if not all_stocks: return
+    if not all_stocks: 
+        print("❌ 無法獲取股票名單，強制中止執行並回報錯誤狀態給 GitHub！")
+        sys.exit(1) # 👈 這行就是讓 GitHub 亮紅燈的終極武器
     
     todo_list = get_todo_list(all_stocks)
     if not todo_list:
