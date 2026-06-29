@@ -29,10 +29,12 @@ def get_all_tw_stocks():
     data = res.json()
     if data.get("msg") == "success":
         df = pd.DataFrame(data["data"])
-        # 只保留代號是 4 碼數字的普通股
         df_stocks = df[df["stock_id"].str.match(r'^\d{4}$')]
         return df_stocks["stock_id"].unique().tolist()
-    return []
+    else:
+        # 加上這行！如果失敗，把 FinMind 罵了什麼印出來
+        print(f"❌ 獲取名單失敗，API 回傳訊息: {data}") 
+        return []
 
 def get_todo_list(all_stocks):
     """讀取現有 CSV，比對出還沒抓過的股票清單"""
