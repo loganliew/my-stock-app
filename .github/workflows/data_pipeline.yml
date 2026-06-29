@@ -2,7 +2,7 @@ name: 📈 台股全市場財報與月營收自動化中台
 
 on:
   schedule:
-    - cron: '23 */2 * * *'
+    - cron: '23 */2 * * *'# 測試奇怪時間trigger
   workflow_dispatch: # 保留手動按鈕
 
 jobs:
