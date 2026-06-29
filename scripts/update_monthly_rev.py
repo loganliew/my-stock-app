@@ -14,7 +14,7 @@ if not os.path.exists(DATA_DIR):
     os.makedirs(DATA_DIR)
 
 # 🔑 你的專屬 API 通行證 (請確認這裡有填寫你的 Token)
-FINMIND_TOKEN = "請在此填入你的Token" 
+FINMIND_TOKEN = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ1c2VyX2lkIjoibG9nYW5saWV3IiwiZW1haWwiOiJzMjI3MDIyMjZAZ21haWwuY29tIiwidG9rZW5fdmVyc2lvbiI6MH0.j2WUIuC7PJGNKSwAviyTbj0bwuq8AJUmd4rWVQ9rUOY" 
 
 # =================================================================
 # 🤖 2. 獲取全市場名單 & 檢查已完成進度
