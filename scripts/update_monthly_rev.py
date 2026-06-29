@@ -2,6 +2,7 @@ import requests
 import pandas as pd
 import time
 import os
+import sys
 
 # =================================================================
 # 📂 1. 設定存檔路徑
