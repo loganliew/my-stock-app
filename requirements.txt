@@ -1,6 +1,8 @@
-streamlit
+streamlit<1.18.0
 pandas
 plotly
 yfinance
 FinMind
 tqdm
+requests
+altair<5
