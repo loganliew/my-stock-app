@@ -33,7 +33,6 @@ def get_all_tw_stocks():
         df_stocks = df[df["stock_id"].str.match(r'^\d{4}$')]
         return df_stocks["stock_id"].unique().tolist()
     else:
-        # 加上這行！如果失敗，把 FinMind 罵了什麼印出來
         print(f"❌ 獲取名單失敗，API 回傳訊息: {data}") 
         return []
 
@@ -42,9 +41,7 @@ def get_todo_list(all_stocks):
     if os.path.exists(CSV_FILE_PATH):
         try:
             existing_df = pd.read_csv(CSV_FILE_PATH)
-            # 取得 CSV 裡已經有哪些股票代號 (轉成字串比對)
             existing_stocks = existing_df['股票代號'].astype(str).unique().tolist()
-            # 篩選出還沒抓過的
             todo = [s for s in all_stocks if s not in existing_stocks]
             print(f"📊 目前資料庫已有 {len(existing_stocks)} 檔，剩餘 {len(todo)} 檔待處理。")
             return todo
@@ -59,7 +56,6 @@ def get_todo_list(all_stocks):
 # 🚀 3. 核心爬蟲與清洗邏輯
 # =================================================================
 def fetch_finmind_data(stock_id):
-    # 向 FinMind 請求單一股票的歷史季報 (一次請求就能拿回該檔所有歷史資料)
     url = "https://api.finmindtrade.com/api/v4/data"
     params = {
         "dataset": "TaiwanStockFinancialStatements",
@@ -101,20 +97,30 @@ def fetch_and_transform(target_stocks):
                 elif month in ['12', '01', '02']: season = "Q4"
                 else: season = "Q?"
                 
+                # 1. 抓取 EPS
                 eps_df = df_raw[(df_raw['date'] == d) & (df_raw['type'] == 'EPS')]
                 eps_val = eps_df['value'].values[0] if not eps_df.empty else 0.0
                 
+                # 2. 抓取營業收入
                 rev_df = df_raw[(df_raw['date'] == d) & (df_raw['origin_name'].str.contains('營業收入', na=False, regex=False))]
                 rev_val = rev_df['value'].values[0] if not rev_df.empty else 0.0
+                
+                # 💡 3. 新增：抓取營業毛利並計算毛利率
+                gp_df = df_raw[(df_raw['date'] == d) & (df_raw['origin_name'].str.contains('營業毛利', na=False, regex=False))]
+                gp_val = gp_df['value'].values[0] if not gp_df.empty else 0.0
+                
+                gross_margin = 0.0
+                if rev_val > 0:
+                    gross_margin = round((float(gp_val) / float(rev_val)) * 100, 2)
                 
                 all_data.append({
                     "股票代號": stock_id,
                     "季度名稱": f"{year} {season}",
                     "單季 EPS (元)": float(eps_val),
-                    "單季營收 (億元)": round(float(rev_val) / 100000000, 2)
+                    "單季營收 (億元)": round(float(rev_val) / 100000000, 2),
+                    "單季毛利率 (%)": gross_margin  # 👈 新增寫入這個欄位
                 })
         
-        # 🛡️ 每次請求完停 1 秒，保護帳號
         time.sleep(1)
         
     return pd.DataFrame(all_data)
@@ -123,41 +129,33 @@ def fetch_and_transform(target_stocks):
 # 🏁 4. 執行與存檔 (智慧接力)
 # =================================================================
 def main():
-    print("啟動【智慧接力版】台股財報 ETL 任務...")
+    print("啟動【智慧接力版】台股財報 ETL 任務 (含毛利率)...")
     
-    # 1. 獲取全市場名單
     all_stocks = get_all_tw_stocks()
     if not all_stocks: 
         print("❌ 無法獲取股票名單，強制中止執行並回報錯誤狀態給 GitHub！")
-        sys.exit(1) # 👈 這行就是讓 GitHub 亮紅燈的終極武器
+        sys.exit(1)
     
-    # 2. 比對出還沒抓過的清單
     todo_list = get_todo_list(all_stocks)
     if not todo_list:
         print("🎉 太棒了！全市場所有股票的歷史財報皆已入庫，無須更新。")
         return
         
-    # 3. 🎯 關鍵設定：本次只抓前 300 檔 (確保絕對不會超過 FinMind 600次/小時限制)
     batch_stocks = todo_list[:300]
     print(f"🚀 本次排程將執行 {len(batch_stocks)} 檔股票的抓取...")
     
-    # 4. 開始抓取這 300 檔
     new_data_df = fetch_and_transform(batch_stocks)
     
-    # 5. 儲存邏輯 (合併舊資料與新資料)
     if not new_data_df.empty:
         if os.path.exists(CSV_FILE_PATH):
-            # 讀取舊資料並與新資料合併
             old_df = pd.read_csv(CSV_FILE_PATH)
             final_df = pd.concat([old_df, new_data_df], ignore_index=True)
         else:
             final_df = new_data_df
             
-        # 清理可能重複的資料並排序
         final_df = final_df.drop_duplicates(subset=["股票代號", "季度名稱"], keep="last")
         final_df = final_df.sort_values(by=["股票代號", "季度名稱"]).reset_index(drop=True)
         
-        # 寫回 CSV
         final_df.to_csv(CSV_FILE_PATH, index=False, encoding='utf-8-sig')
         print(f"🎉 本回合接力成功！資料庫已擴充至 {len(final_df['股票代號'].unique())} 檔股票。")
     else:
