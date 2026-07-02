@@ -134,7 +134,7 @@ def fetch_and_transform(target_stocks):
     return pd.DataFrame(all_data)
 
 # =================================================================
-# 🏁 4. 執行與存檔 (無縫覆蓋)
+# 🏁 4. 執行與存檔 (無縫覆蓋 + 空檔免疫)
 # =================================================================
 def main():
     print("啟動【長期維護版】台股【月營收】ETL 任務 (自動輪詢)...")
@@ -155,9 +155,19 @@ def main():
     if not new_data_df.empty:
         new_data_df['股票代號'] = new_data_df['股票代號'].astype(str)
         
+        # 🛡️ 加入空檔免疫力機制
+        old_df = pd.DataFrame()
         if os.path.exists(CSV_FILE_PATH):
-            old_df = pd.read_csv(CSV_FILE_PATH)
-            old_df['股票代號'] = old_df['股票代號'].astype(str)
+            try:
+                old_df = pd.read_csv(CSV_FILE_PATH)
+                old_df['股票代號'] = old_df['股票代號'].astype(str)
+            except pd.errors.EmptyDataError:
+                print("⚠️ 發現舊 CSV 是空檔案，將直接寫入新資料。")
+            except Exception as e:
+                print(f"⚠️ 讀取舊 CSV 發生未知錯誤：{e}")
+
+        # 如果舊資料成功讀取且不是空的，才進行合併
+        if not old_df.empty:
             final_df = pd.concat([old_df, new_data_df], ignore_index=True)
         else:
             final_df = new_data_df
