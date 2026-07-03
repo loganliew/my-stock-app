@@ -43,23 +43,18 @@ def get_todo_list(all_stocks):
             df = pd.read_csv(CSV_FILE_PATH)
             df['股票代號'] = df['股票代號'].astype(str)
             
-            # 如果舊資料沒有時間戳記，先幫它補上一個超級舊的時間
             if '最後更新時間' not in df.columns:
                 df['最後更新時間'] = "2000-01-01 00:00:00"
             
-            # 找出每檔股票「最新」的更新時間
             last_updates = df.groupby('股票代號')['最後更新時間'].max().to_dict()
             
             stock_update_list = []
             for s in all_stocks:
-                # 如果這檔股票沒在 CSV 裡，給它一個超舊的時間讓它排第一
                 last_time = last_updates.get(s, "2000-01-01 00:00:00")
                 stock_update_list.append((s, last_time))
                 
-            # 💡 核心邏輯：依照最後更新時間由舊到新排序
             stock_update_list.sort(key=lambda x: x[1])
             
-            # 抽出排序後的股票代號清單
             todo = [x[0] for x in stock_update_list]
             
             print(f"📊 資料庫目前涵蓋 {len(last_updates)} 檔。系統已啟動輪詢機制，將優先更新最舊的資料。")
@@ -107,7 +102,7 @@ def fetch_and_transform(target_stocks):
         print(f"⏳ [{idx}/{total}] 正在抓取 {stock_id} 財報...")
         df_raw = fetch_finmind_data(stock_id)
         
-       if not df_raw.empty:
+        if not df_raw.empty:
             unique_dates = sorted(df_raw['date'].unique())
             for d in unique_dates:
                 year, month = d.split("-")[0], d.split("-")[1]
@@ -166,7 +161,6 @@ def main():
     
     todo_list = get_todo_list(all_stocks)
         
-    # 永遠只抓前 300 檔最久沒更新的股票
     batch_stocks = todo_list[:300]
     print(f"🚀 本次排程將更新 {len(batch_stocks)} 檔股票...")
     
@@ -175,7 +169,6 @@ def main():
     if not new_data_df.empty:
         new_data_df['股票代號'] = new_data_df['股票代號'].astype(str)
         
-        # 🛡️ 加入空檔免疫力機制
         old_df = pd.DataFrame()
         if os.path.exists(CSV_FILE_PATH):
             try:
@@ -186,13 +179,11 @@ def main():
             except Exception as e:
                 print(f"⚠️ 讀取舊 CSV 發生未知錯誤：{e}")
 
-        # 如果舊資料成功讀取且不是空的，才進行合併
         if not old_df.empty:
             final_df = pd.concat([old_df, new_data_df], ignore_index=True)
         else:
             final_df = new_data_df
             
-        # 💡 核心覆蓋：依照代號與季度去重複，保留「最後一筆」(也就是我們剛剛抓到、有最新時間戳記的那筆)
         final_df = final_df.drop_duplicates(subset=["股票代號", "季度名稱"], keep="last")
         final_df = final_df.sort_values(by=["股票代號", "季度名稱"]).reset_index(drop=True)
         
