@@ -173,11 +173,12 @@ def main():
 
         st.markdown("---")
 
-        # ==========================================
+      # ==========================================
         # 📈 第三區塊：個股技術面分析 (yfinance 互動線圖)
         # ==========================================
         st.header("📈 個股技術面分析 (K線與均線)")
-        st.write("輸入股票代號，即時抓取最新近半年的技術線圖：")
+        # 💡 提示使用者需要按 Enter
+        st.write("輸入股票代號並 **按下 Enter (回車鍵)**，即時抓取最新近半年的技術線圖：")
         
         col1, col2 = st.columns([1, 3])
         with col1:
@@ -194,25 +195,36 @@ def main():
                         hist = ticker.history(period="6mo")
                     
                     if not hist.empty:
+                        # 💡 核心修正 1：防止新版 yfinance 產生雙層欄位導致讀取失敗
+                        if isinstance(hist.columns, pd.MultiIndex):
+                            hist.columns = hist.columns.get_level_values(0)
+                            
+                        # 💡 核心修正 2：將時間轉換成純字串，解決 K 線消失與六日空白斷層的問題
+                        dates = hist.index.strftime('%Y-%m-%d')
+                        
                         hist['MA20'] = hist['Close'].rolling(window=20).mean()
                         hist['MA60'] = hist['Close'].rolling(window=60).mean()
                         
-                        fig = go.Figure(data=[go.Candlestick(x=hist.index,
+                        fig = go.Figure(data=[go.Candlestick(x=dates,
                                         open=hist['Open'],
                                         high=hist['High'],
                                         low=hist['Low'],
                                         close=hist['Close'],
                                         name="K線")])
                         
-                        fig.add_trace(go.Scatter(x=hist.index, y=hist['MA20'], line=dict(color='orange', width=1.5), name='月線 (20MA)'))
-                        fig.add_trace(go.Scatter(x=hist.index, y=hist['MA60'], line=dict(color='blue', width=1.5), name='季線 (60MA)'))
+                        fig.add_trace(go.Scatter(x=dates, y=hist['MA20'], line=dict(color='orange', width=1.5), name='月線 (20MA)'))
+                        fig.add_trace(go.Scatter(x=dates, y=hist['MA60'], line=dict(color='blue', width=1.5), name='季線 (60MA)'))
                         
                         fig.update_layout(
                             title=f"{query_stock} 近半年走勢圖", 
                             xaxis_rangeslider_visible=False,
+                            xaxis_type='category', # 👈 強制設定為類別，讓 K 線連續不中斷
                             height=550,
                             margin=dict(l=0, r=0, t=40, b=0)
                         )
+                        
+                        # 調整 X 軸標籤顯示密度，避免日期字串全部擠在一起
+                        fig.update_xaxes(nticks=10)
                         
                         st.plotly_chart(fig, use_container_width=True)
                     else:
