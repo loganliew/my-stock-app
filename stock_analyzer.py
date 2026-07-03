@@ -133,7 +133,6 @@ def main():
         
         st.markdown("---")
         
-        # 🏆 第一區塊：高分強勢股
         st.subheader(f"🏆 嚴選潛力股清單 (共 {len(high_score_df)} 檔)")
         if not high_score_df.empty:
             styled_high_score = high_score_df.style.format({
@@ -147,7 +146,6 @@ def main():
 
         st.markdown("---")
 
-        # 📊 第二區塊：全市場總表
         with st.expander(f"📂 點擊展開：查看全市場 {len(result_df)} 檔股票評分總表"):
             all_market_df = result_df.sort_values(by='股票代號').reset_index(drop=True)
             styled_all = all_market_df.style.format({
@@ -159,21 +157,18 @@ def main():
 
         st.markdown("---")
 
-# ==========================================
+        # ==========================================
         # 📈 第三區塊：個股技術面分析 (專業全指標版)
         # ==========================================
         st.header("📈 專業技術分析面版")
         
-        # UI：扁平化排版，一字排開 (避免舊版 Streamlit 欄位包欄位的錯誤)
         st.write("⚙️ **個股查詢與指標開關**")
-        
-        # 將畫面切分成 5 個區塊，第一個給搜尋框，後面 4 個給開關
         col_input, col_ma, col_bb, col_vol, col_macd = st.columns([2, 1.5, 1.5, 1.5, 1.2])
         
         with col_input:
             query_stock = st.text_input("🔍 輸入代號並按 Enter", "2330")
         with col_ma:
-            st.write(" ") # 往下推一行，讓開關跟搜尋框對齊
+            st.write(" ") 
             show_ma = st.checkbox("顯示均線", value=True)
         with col_bb:
             st.write(" ")
@@ -190,36 +185,38 @@ def main():
                 hist = fetch_stock_price(query_stock)
                 
                 if not hist.empty:
+                    # 💡 核心修正 1：強制將欄位轉為數值，防止 Plotly 讀到字串而翻轉圖表
+                    numeric_cols = ['open', 'high', 'low', 'close', 'Trading_Volume']
+                    hist[numeric_cols] = hist[numeric_cols].apply(pd.to_numeric, errors='coerce')
+                    
+                    # 💡 核心修正 2：強制將日期轉換為時間格式
+                    hist['date'] = pd.to_datetime(hist['date'])
+                    
                     # 🧮 計算技術指標
                     hist['MA5'] = hist['close'].rolling(window=5).mean()
                     hist['MA10'] = hist['close'].rolling(window=10).mean()
                     hist['MA20'] = hist['close'].rolling(window=20).mean()
                     hist['MA60'] = hist['close'].rolling(window=60).mean()
                     
-                    # 布林通道 (20MA ± 2標準差)
                     hist['BB_std'] = hist['close'].rolling(window=20).std()
                     hist['BB_upper'] = hist['MA20'] + (2 * hist['BB_std'])
                     hist['BB_lower'] = hist['MA20'] - (2 * hist['BB_std'])
                     
-                    # MACD (12, 26, 9)
                     exp1 = hist['close'].ewm(span=12, adjust=False).mean()
                     exp2 = hist['close'].ewm(span=26, adjust=False).mean()
                     hist['MACD'] = exp1 - exp2
                     hist['Signal'] = hist['MACD'].ewm(span=9, adjust=False).mean()
                     hist['MACD_Hist'] = hist['MACD'] - hist['Signal']
                     
-                    # 只取最後半年(約120個交易日)來畫圖
                     display_df = hist.tail(120).copy()
                     
-                    dates = display_df['date'].tolist()
+                    dates = display_df['date']
                     open_p, high_p, low_p, close_p = display_df['open'], display_df['high'], display_df['low'], display_df['close']
                     volumes = display_df['Trading_Volume']
                     
-                    # 台股顏色設定 (紅漲綠跌)
                     stock_colors = ['#ef5350' if c >= o else '#26a69a' for c, o in zip(close_p, open_p)]
                     macd_colors = ['#ef5350' if val >= 0 else '#26a69a' for val in display_df['MACD_Hist']]
                     
-                    # 🏗️ 動態建立子圖表佈局 (Subplots)
                     plot_rows = 1
                     row_heights = [0.6]
                     vol_row = macd_row = 0
@@ -233,7 +230,6 @@ def main():
                         macd_row = plot_rows
                         row_heights.append(0.2)
                         
-                    # 正規化高度
                     total_height = sum(row_heights)
                     row_heights = [h/total_height for h in row_heights]
 
@@ -244,45 +240,47 @@ def main():
                     fig.add_trace(go.Candlestick(x=dates, open=open_p, high=high_p, low=low_p, close=close_p, name="K線",
                                   increasing_line_color='#ef5350', decreasing_line_color='#26a69a'), row=1, col=1)
                     
-                    # 畫均線
                     if show_ma:
                         fig.add_trace(go.Scatter(x=dates, y=display_df['MA5'], line=dict(color='#ff9800', width=1.5), name='5MA'), row=1, col=1)
                         fig.add_trace(go.Scatter(x=dates, y=display_df['MA10'], line=dict(color='#e91e63', width=1.5), name='10MA'), row=1, col=1)
                         fig.add_trace(go.Scatter(x=dates, y=display_df['MA20'], line=dict(color='#2196f3', width=1.5), name='20MA(月線)'), row=1, col=1)
                         fig.add_trace(go.Scatter(x=dates, y=display_df['MA60'], line=dict(color='#9c27b0', width=2), name='60MA(季線)'), row=1, col=1)
                     
-                    # 畫布林通道
                     if show_bb:
                         fig.add_trace(go.Scatter(x=dates, y=display_df['BB_upper'], line=dict(color='rgba(158,158,158,0.5)', width=1, dash='dash'), name='布林上軌'), row=1, col=1)
                         fig.add_trace(go.Scatter(x=dates, y=display_df['BB_lower'], line=dict(color='rgba(158,158,158,0.5)', width=1, dash='dash'), fill='tonexty', fillcolor='rgba(158,158,158,0.1)', name='布林下軌'), row=1, col=1)
 
-                    # 2. 畫成交量
+                    # 2. 畫成交量 (明確指定垂直 orientation='v')
                     if show_vol:
-                        fig.add_trace(go.Bar(x=dates, y=volumes, marker_color=stock_colors, name='成交量'), row=vol_row, col=1)
+                        fig.add_trace(go.Bar(x=dates, y=volumes, marker_color=stock_colors, name='成交量', orientation='v'), row=vol_row, col=1)
                         fig.update_yaxes(title_text="成交量", row=vol_row, col=1)
 
-                    # 3. 畫 MACD
+                    # 3. 畫 MACD (明確指定垂直 orientation='v')
                     if show_macd:
-                        fig.add_trace(go.Bar(x=dates, y=display_df['MACD_Hist'], marker_color=macd_colors, name='MACD 柱狀體'), row=macd_row, col=1)
+                        fig.add_trace(go.Bar(x=dates, y=display_df['MACD_Hist'], marker_color=macd_colors, name='MACD 柱狀體', orientation='v'), row=macd_row, col=1)
                         fig.add_trace(go.Scatter(x=dates, y=display_df['MACD'], line=dict(color='#2196f3', width=1.5), name='MACD 快線'), row=macd_row, col=1)
                         fig.add_trace(go.Scatter(x=dates, y=display_df['Signal'], line=dict(color='#ff9800', width=1.5), name='MACD 慢線'), row=macd_row, col=1)
                         fig.update_yaxes(title_text="MACD", row=macd_row, col=1)
 
-                    # 佈局微調
                     chart_height = 500 if plot_rows == 1 else (650 if plot_rows == 2 else 800)
+                    
                     fig.update_layout(
                         title=f"{query_stock} 專業技術分析",
                         xaxis_rangeslider_visible=False,
                         height=chart_height,
                         margin=dict(l=0, r=0, t=40, b=0),
-                        hovermode="x unified", # 開啟十字準線資訊框
+                        hovermode="x unified",
                         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
                     )
                     
-                    # 隱藏所有子圖表假日的 X 軸空白
+                    # 💡 核心修正 3：智慧去假日法 (找出這段期間沒有開盤的日子並隱藏，完美解決 K 線斷層)
+                    all_dates = pd.date_range(start=dates.min(), end=dates.max())
+                    missing_dates = all_dates.difference(dates).strftime("%Y-%m-%d").tolist()
+
                     for i in range(1, plot_rows + 1):
-                        fig.update_xaxes(type='category', nticks=10, row=i, col=1)
-                        if i < plot_rows: # 隱藏上面圖表的 X 軸刻度文字，讓畫面更簡潔
+                        # 把沒有開盤的日子加進 rangebreaks 隱藏名單
+                        fig.update_xaxes(rangebreaks=[dict(values=missing_dates)], row=i, col=1)
+                        if i < plot_rows:
                             fig.update_xaxes(showticklabels=False, row=i, col=1)
 
                     st.plotly_chart(fig, use_container_width=True)
