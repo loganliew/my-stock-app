@@ -163,13 +163,19 @@ def main():
         st.header("📈 專業技術分析面版")
         
         st.write("⚙️ **個股查詢與指標開關**")
-        col_input, col_ma, col_bb, col_vol, col_macd = st.columns([2, 1.5, 1.5, 1.5, 1.2])
+        
+        # 💡 調整比例：放大均線選單的寬度，讓多選框有空間展開
+        col_input, col_ma, col_bb, col_vol, col_macd = st.columns([1.5, 3, 1, 1, 1])
         
         with col_input:
             query_stock = st.text_input("🔍 輸入代號並按 Enter", "2330")
         with col_ma:
-            st.write(" ") 
-            show_ma = st.checkbox("顯示均線", value=True)
+            # 💡 核心升級：使用 multiselect 替換 checkbox
+            ma_options = st.multiselect(
+                "📊 選擇顯示均線", 
+                options=["5MA", "10MA", "20MA(月線)", "60MA(季線)"], 
+                default=["5MA", "10MA", "20MA(月線)", "60MA(季線)"]
+            )
         with col_bb:
             st.write(" ")
             show_bb = st.checkbox("顯示布林", value=False)
@@ -185,10 +191,9 @@ def main():
                 hist = fetch_stock_price(query_stock)
                 
                 if not hist.empty:
-                    # 💡 強制型別轉換：徹底杜絕 Plotly 將數字當成字串標籤的可能
                     numeric_cols = ['open', 'high', 'low', 'close', 'Trading_Volume']
                     hist[numeric_cols] = hist[numeric_cols].apply(pd.to_numeric, errors='coerce')
-                    hist['Trading_Volume'] = hist['Trading_Volume'].fillna(0) # 確保成交量沒有空值
+                    hist['Trading_Volume'] = hist['Trading_Volume'].fillna(0)
                     
                     hist['date'] = pd.to_datetime(hist['date'])
                     hist = hist.sort_values('date').dropna(subset=['close']).reset_index(drop=True)
@@ -210,7 +215,6 @@ def main():
                     
                     display_df = hist.tail(120).copy()
                     
-                    # 💡 終極解法：使用 .tolist() 剝離 Pandas 外衣，讓 Plotly 只能乖乖畫數字
                     dates = display_df['date'].tolist()
                     open_p = display_df['open'].tolist()
                     high_p = display_df['high'].tolist()
@@ -256,10 +260,14 @@ def main():
                     fig.add_trace(go.Candlestick(x=dates, open=open_p, high=high_p, low=low_p, close=close_p, name="K線",
                                   increasing_line_color='#ef5350', decreasing_line_color='#26a69a'), row=1, col=1)
                     
-                    if show_ma:
+                    # 💡 動態畫均線：根據多選選單的結果，決定要畫哪幾條線
+                    if "5MA" in ma_options:
                         fig.add_trace(go.Scatter(x=dates, y=ma5, line=dict(color='#ff9800', width=1.5), name='5MA'), row=1, col=1)
+                    if "10MA" in ma_options:
                         fig.add_trace(go.Scatter(x=dates, y=ma10, line=dict(color='#e91e63', width=1.5), name='10MA'), row=1, col=1)
+                    if "20MA(月線)" in ma_options:
                         fig.add_trace(go.Scatter(x=dates, y=ma20, line=dict(color='#2196f3', width=1.5), name='20MA(月線)'), row=1, col=1)
+                    if "60MA(季線)" in ma_options:
                         fig.add_trace(go.Scatter(x=dates, y=ma60, line=dict(color='#9c27b0', width=2), name='60MA(季線)'), row=1, col=1)
                     
                     if show_bb:
@@ -287,14 +295,12 @@ def main():
                         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
                     )
                     
-                    # 💡 暴力覆蓋：明確指定所有 X 軸是時間，Y 軸是數字
                     for i in range(1, plot_rows + 1):
                         fig.update_yaxes(type='linear', row=i, col=1)
                         fig.update_xaxes(type='date', row=i, col=1)
                         if i < plot_rows:
                             fig.update_xaxes(showticklabels=False, row=i, col=1)
 
-                    # 完美隱藏假日空白
                     all_dates = pd.date_range(start=display_df['date'].min(), end=display_df['date'].max())
                     missing_dates = all_dates.difference(display_df['date']).strftime("%Y-%m-%d").tolist()
 
