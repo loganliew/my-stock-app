@@ -107,7 +107,7 @@ def fetch_and_transform(target_stocks):
         print(f"⏳ [{idx}/{total}] 正在抓取 {stock_id} 財報...")
         df_raw = fetch_finmind_data(stock_id)
         
-        if not df_raw.empty:
+       if not df_raw.empty:
             unique_dates = sorted(df_raw['date'].unique())
             for d in unique_dates:
                 year, month = d.split("-")[0], d.split("-")[1]
@@ -136,8 +136,18 @@ def fetch_and_transform(target_stocks):
                     "單季 EPS (元)": float(eps_val),
                     "單季營收 (億元)": round(float(rev_val) / 100000000, 2),
                     "單季毛利率 (%)": gross_margin,
-                    "最後更新時間": current_time # 👈 押上時間戳記
+                    "最後更新時間": current_time 
                 })
+        else:
+            # 💡 核心修復：就算沒有資料，也要寫入空紀錄來押上時間戳記，打破無限迴圈！
+            all_data.append({
+                "股票代號": stock_id,
+                "季度名稱": "無資料",
+                "單季 EPS (元)": 0.0,
+                "單季營收 (億元)": 0.0,
+                "單季毛利率 (%)": 0.0,
+                "最後更新時間": current_time
+            })
         
         time.sleep(1)
         
