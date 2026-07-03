@@ -185,14 +185,13 @@ def main():
                 hist = fetch_stock_price(query_stock)
                 
                 if not hist.empty:
-                    # 💡 核心修正 1：強制將欄位轉為數值，防止 Plotly 讀到字串而翻轉圖表
                     numeric_cols = ['open', 'high', 'low', 'close', 'Trading_Volume']
                     hist[numeric_cols] = hist[numeric_cols].apply(pd.to_numeric, errors='coerce')
                     
-                    # 💡 核心修正 2：強制將日期轉換為時間格式
+                    # 💡 核心除錯護城河：強制日期轉換 ＋ 嚴格遞增排序 ＋ 濾除無效空值
                     hist['date'] = pd.to_datetime(hist['date'])
+                    hist = hist.sort_values('date').dropna(subset=['close']).reset_index(drop=True)
                     
-                    # 🧮 計算技術指標
                     hist['MA5'] = hist['close'].rolling(window=5).mean()
                     hist['MA10'] = hist['close'].rolling(window=10).mean()
                     hist['MA20'] = hist['close'].rolling(window=20).mean()
@@ -250,12 +249,10 @@ def main():
                         fig.add_trace(go.Scatter(x=dates, y=display_df['BB_upper'], line=dict(color='rgba(158,158,158,0.5)', width=1, dash='dash'), name='布林上軌'), row=1, col=1)
                         fig.add_trace(go.Scatter(x=dates, y=display_df['BB_lower'], line=dict(color='rgba(158,158,158,0.5)', width=1, dash='dash'), fill='tonexty', fillcolor='rgba(158,158,158,0.1)', name='布林下軌'), row=1, col=1)
 
-                    # 2. 畫成交量 (明確指定垂直 orientation='v')
                     if show_vol:
                         fig.add_trace(go.Bar(x=dates, y=volumes, marker_color=stock_colors, name='成交量', orientation='v'), row=vol_row, col=1)
                         fig.update_yaxes(title_text="成交量", row=vol_row, col=1)
 
-                    # 3. 畫 MACD (明確指定垂直 orientation='v')
                     if show_macd:
                         fig.add_trace(go.Bar(x=dates, y=display_df['MACD_Hist'], marker_color=macd_colors, name='MACD 柱狀體', orientation='v'), row=macd_row, col=1)
                         fig.add_trace(go.Scatter(x=dates, y=display_df['MACD'], line=dict(color='#2196f3', width=1.5), name='MACD 快線'), row=macd_row, col=1)
@@ -273,13 +270,13 @@ def main():
                         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
                     )
                     
-                    # 💡 核心修正 3：智慧去假日法 (找出這段期間沒有開盤的日子並隱藏，完美解決 K 線斷層)
+                    # 💡 確保只有在真有缺漏日期時才觸發 rangebreaks
                     all_dates = pd.date_range(start=dates.min(), end=dates.max())
                     missing_dates = all_dates.difference(dates).strftime("%Y-%m-%d").tolist()
 
                     for i in range(1, plot_rows + 1):
-                        # 把沒有開盤的日子加進 rangebreaks 隱藏名單
-                        fig.update_xaxes(rangebreaks=[dict(values=missing_dates)], row=i, col=1)
+                        if missing_dates:
+                            fig.update_xaxes(rangebreaks=[dict(values=missing_dates)], row=i, col=1)
                         if i < plot_rows:
                             fig.update_xaxes(showticklabels=False, row=i, col=1)
 
