@@ -159,23 +159,31 @@ def main():
 
         st.markdown("---")
 
-        # ==========================================
+# ==========================================
         # 📈 第三區塊：個股技術面分析 (專業全指標版)
         # ==========================================
         st.header("📈 專業技術分析面版")
         
-        # UI：股票輸入框與技術指標開關
-        col1, col2 = st.columns([1, 3])
-        with col1:
-            query_stock = st.text_input("🔍 輸入代號並按 Enter (例如：2330)", "2330")
+        # UI：扁平化排版，一字排開 (避免舊版 Streamlit 欄位包欄位的錯誤)
+        st.write("⚙️ **個股查詢與指標開關**")
         
-        with col2:
-            st.write("⚙️ **選擇顯示指標**")
-            opt_col1, opt_col2, opt_col3, opt_col4 = st.columns(4)
-            show_ma = opt_col1.checkbox("顯示均線 (5/10/20/60MA)", value=True)
-            show_bb = opt_col2.checkbox("顯示布林通道 (Bollinger)", value=False)
-            show_vol = opt_col3.checkbox("顯示成交量 (Volume)", value=True)
-            show_macd = opt_col4.checkbox("顯示 MACD", value=False)
+        # 將畫面切分成 5 個區塊，第一個給搜尋框，後面 4 個給開關
+        col_input, col_ma, col_bb, col_vol, col_macd = st.columns([2, 1.5, 1.5, 1.5, 1.2])
+        
+        with col_input:
+            query_stock = st.text_input("🔍 輸入代號並按 Enter", "2330")
+        with col_ma:
+            st.write(" ") # 往下推一行，讓開關跟搜尋框對齊
+            show_ma = st.checkbox("顯示均線", value=True)
+        with col_bb:
+            st.write(" ")
+            show_bb = st.checkbox("顯示布林", value=False)
+        with col_vol:
+            st.write(" ")
+            show_vol = st.checkbox("顯示成交量", value=True)
+        with col_macd:
+            st.write(" ")
+            show_macd = st.checkbox("顯示 MACD", value=False)
 
         if query_stock:
             with st.spinner("載入專業線圖中..."):
