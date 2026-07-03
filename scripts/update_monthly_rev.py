@@ -107,26 +107,36 @@ def fetch_and_transform(target_stocks):
         print(f"⏳ [{idx}/{total}] 正在抓取 {stock_id} 月營收...")
         df_raw = fetch_finmind_monthly_revenue(stock_id)
         
-        if not df_raw.empty:
+       if not df_raw.empty:
             for _, row in df_raw.iterrows():
                 raw_date = row.get("date", "")
                 if raw_date:
-                    year_month = raw_date[:7] # 只要 "2024-01" 
+                    year_month = raw_date[:7] 
                 else:
                     year_month = "未知"
                 
-                rev_val = row.get("revenue", 0.0)      # 當月營收
-                yoy_val = row.get("revenue_year_growth_rate", 0.0) # 年增率 YoY (%)
-                mom_val = row.get("revenue_month_growth_rate", 0.0) # 月增率 MoM (%)
+                rev_val = row.get("revenue", 0.0)      
+                yoy_val = row.get("revenue_year_growth_rate", 0.0) 
+                mom_val = row.get("revenue_month_growth_rate", 0.0) 
                 
                 all_data.append({
                     "股票代號": stock_id,
                     "年月": year_month,
-                    "單月營收 (億元)": round(float(rev_val) / 100000000, 2), # 換算成億元
+                    "單月營收 (億元)": round(float(rev_val) / 100000000, 2), 
                     "營收年增率 (YoY%)": round(float(yoy_val) * 100, 2) if yoy_val else 0.0,
                     "營收月增率 (MoM%)": round(float(mom_val) * 100, 2) if mom_val else 0.0,
-                    "最後更新時間": current_time # 👈 押上時間戳記
+                    "最後更新時間": current_time 
                 })
+        else:
+            # 💡 核心修復：押上時間戳記避免幽靈股票無限卡點
+            all_data.append({
+                "股票代號": stock_id,
+                "年月": "無資料",
+                "單月營收 (億元)": 0.0,
+                "營收年增率 (YoY%)": 0.0,
+                "營收月增率 (MoM%)": 0.0,
+                "最後更新時間": current_time
+            })
         
         # 🛡️ 每次請求完停 1 秒
         time.sleep(1)
