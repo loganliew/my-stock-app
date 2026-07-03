@@ -2,8 +2,8 @@ import streamlit as st
 import pandas as pd
 import os
 import requests
-import yfinance as yf
 import plotly.graph_objects as go
+from datetime import datetime, timedelta
 
 # 🔑 讀取名稱對照表專用的 API 通行證
 FINMIND_TOKEN = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ1c2VyX2lkIjoibG9nYW5saWV3IiwiZW1haWwiOiJzMjI3MDIyMjZAZ21haWwuY29tIiwidG9rZW5fdmVyc2lvbiI6MH0.j2WUIuC7PJGNKSwAviyTbj0bwuq8AJUmd4rWVQ9rUOY" 
@@ -66,14 +66,12 @@ def load_and_clean_data():
         return None
 
 # =================================================================
-# 🧮 2. 基本面分數計算機 (全新配分：加入毛利率與操作建議)
+# 🧮 2. 基本面分數計算機 (加入毛利率與操作建議)
 # =================================================================
 def calculate_fundamental_score(df):
-    """根據 EPS、營收與毛利率重新計算總分，並劃分操作建議等級"""
     scored_df = df.copy()
     scored_df['Score'] = 0
     
-    # 基礎配分邏輯
     scored_df.loc[scored_df['單季 EPS (元)'] > 0, 'Score'] += 30
     scored_df.loc[scored_df['單季 EPS (元)'] >= 2, 'Score'] += 20
     scored_df.loc[scored_df['單季營收 (億元)'] > 50, 'Score'] += 20
@@ -81,7 +79,6 @@ def calculate_fundamental_score(df):
     if '單季毛利率 (%)' in scored_df.columns:
         scored_df.loc[scored_df['單季毛利率 (%)'] > 20, 'Score'] += 30
         
-    # 💡 【核心修改】: 依照評分機制自動判定投資建議
     def get_recommendation(score):
         if score >= 90:
             return "🔥 強力買進"
@@ -96,7 +93,6 @@ def calculate_fundamental_score(df):
             
     scored_df['投資建議'] = scored_df['Score'].apply(get_recommendation)
     
-    # 調整欄位順序，讓投資建議緊跟在 Score 旁邊，比較好讀
     cols = list(scored_df.columns)
     if '投資建議' in cols and 'Score' in cols:
         cols.remove('投資建議')
@@ -107,7 +103,34 @@ def calculate_fundamental_score(df):
     return scored_df
 
 # =================================================================
-# 🖥️ 3. 前端介面展示 (Streamlit)
+# 📊 3. 穩定版：FinMind 股價爬蟲
+# =================================================================
+def fetch_stock_price(stock_id):
+    """使用 FinMind 抓取股價，完全避開 yfinance 的不穩定與 IP 封鎖問題"""
+    url = "https://api.finmindtrade.com/api/v4/data"
+    # 往回抓 200 天，確保有足夠的資料來算出 60 日季線
+    start_date = (datetime.now() - timedelta(days=200)).strftime('%Y-%m-%d')
+    
+    params = {
+        "dataset": "TaiwanStockPrice",
+        "data_id": str(stock_id),
+        "start_date": start_date,
+        "token": FINMIND_TOKEN
+    }
+    try:
+        res = requests.get(url, params=params, timeout=10)
+        data = res.json()
+        if data.get("msg") == "success" and len(data.get("data", [])) > 0:
+            df = pd.DataFrame(data["data"])
+            # 將 FinMind 的欄位名稱轉換為畫圖需要的格式
+            df = df.rename(columns={'max': 'high', 'min': 'low'})
+            return df
+    except Exception as e:
+        st.error(f"股價 API 請求錯誤: {e}")
+    return pd.DataFrame()
+
+# =================================================================
+# 🖥️ 4. 前端介面展示 (Streamlit)
 # =================================================================
 def main():
     st.set_page_config(page_title="台股財報量化看盤", page_icon="📈", layout="wide")
@@ -119,18 +142,12 @@ def main():
     
     if raw_df is not None and not raw_df.empty:
         result_df = calculate_fundamental_score(raw_df)
-        
-        # 依照分數與 EPS 排序
         result_df = result_df.sort_values(by=['Score', '單季 EPS (元)'], ascending=[False, False]).reset_index(drop=True)
-        
-        # 篩選出大於等於 70 分的強勢股 (即包含 強力買進 與 買進)
         high_score_df = result_df[result_df['Score'] >= 70]
         
         st.markdown("---")
         
-        # ==========================================
         # 🏆 第一區塊：高分強勢股
-        # ==========================================
         st.subheader(f"🏆 嚴選潛力股清單 (共 {len(high_score_df)} 檔)")
         st.write("💡 **過濾條件**：綜合評分 >= 70 分 (對應【強力買進】與【買進】級別)。")
         
@@ -139,45 +156,30 @@ def main():
                 "單季營收 (億元)": "{:.2f}",
                 "單季 EPS (元)": "{:.2f}",
                 "單季毛利率 (%)": "{:.2f}" if "單季毛利率 (%)" in high_score_df.columns else "{}"
-            }).bar(
-                subset=['Score'], 
-                color='#20c997', 
-                vmin=0, 
-                vmax=100
-            )
+            }).bar(subset=['Score'], color='#20c997', vmin=0, vmax=100)
             st.dataframe(styled_high_score)
         else:
             st.warning("目前最新一季沒有符合 >= 70 分標準的標的。")
 
         st.markdown("---")
 
-        # ==========================================
         # 📊 第二區塊：全市場總表
-        # ==========================================
         with st.expander(f"📂 點擊展開：查看全市場 {len(result_df)} 檔股票評分總表"):
             st.write("這裡是所有抓取到的股票資料，已為您依【股票代號】排序，並完整標註五大建議等級：")
-            
             all_market_df = result_df.sort_values(by='股票代號').reset_index(drop=True)
-            
             styled_all = all_market_df.style.format({
                 "單季營收 (億元)": "{:.2f}",
                 "單季 EPS (元)": "{:.2f}",
                 "單季毛利率 (%)": "{:.2f}" if "單季毛利率 (%)" in all_market_df.columns else "{}"
-            }).bar(
-                subset=['Score'], 
-                color='#6c757d', 
-                vmin=0, 
-                vmax=100
-            )
+            }).bar(subset=['Score'], color='#6c757d', vmin=0, vmax=100)
             st.dataframe(styled_all)
 
         st.markdown("---")
 
-      # ==========================================
-        # 📈 第三區塊：個股技術面分析 (yfinance 互動線圖)
+        # ==========================================
+        # 📈 第三區塊：個股技術面分析 (FinMind 互動線圖)
         # ==========================================
         st.header("📈 個股技術面分析 (K線與均線)")
-        # 💡 提示使用者需要按 Enter
         st.write("輸入股票代號並 **按下 Enter (回車鍵)**，即時抓取最新近半年的技術線圖：")
         
         col1, col2 = st.columns([1, 3])
@@ -186,51 +188,46 @@ def main():
             
         if query_stock:
             with st.spinner("載入線圖中..."):
-                try:
-                    ticker = yf.Ticker(f"{query_stock}.TW")
-                    hist = ticker.history(period="6mo")
+                # 改呼叫我們自己寫好的 FinMind 爬蟲
+                hist = fetch_stock_price(query_stock)
+                
+                if not hist.empty:
+                    # 計算均線
+                    hist['MA20'] = hist['close'].rolling(window=20).mean()
+                    hist['MA60'] = hist['close'].rolling(window=60).mean()
                     
-                    if hist.empty:
-                        ticker = yf.Ticker(f"{query_stock}.TWO")
-                        hist = ticker.history(period="6mo")
+                    # 只取最後 120 天(約半年)的資料來畫圖，畫面最乾淨好看
+                    display_df = hist.tail(120).copy()
                     
-                    if not hist.empty:
-                        # 💡 核心修正 1：防止新版 yfinance 產生雙層欄位導致讀取失敗
-                        if isinstance(hist.columns, pd.MultiIndex):
-                            hist.columns = hist.columns.get_level_values(0)
-                            
-                        # 💡 核心修正 2：將時間轉換成純字串，解決 K 線消失與六日空白斷層的問題
-                        dates = hist.index.strftime('%Y-%m-%d')
-                        
-                        hist['MA20'] = hist['Close'].rolling(window=20).mean()
-                        hist['MA60'] = hist['Close'].rolling(window=60).mean()
-                        
-                        fig = go.Figure(data=[go.Candlestick(x=dates,
-                                        open=hist['Open'],
-                                        high=hist['High'],
-                                        low=hist['Low'],
-                                        close=hist['Close'],
-                                        name="K線")])
-                        
-                        fig.add_trace(go.Scatter(x=dates, y=hist['MA20'], line=dict(color='orange', width=1.5), name='月線 (20MA)'))
-                        fig.add_trace(go.Scatter(x=dates, y=hist['MA60'], line=dict(color='blue', width=1.5), name='季線 (60MA)'))
-                        
-                        fig.update_layout(
-                            title=f"{query_stock} 近半年走勢圖", 
-                            xaxis_rangeslider_visible=False,
-                            xaxis_type='category', # 👈 強制設定為類別，讓 K 線連續不中斷
-                            height=550,
-                            margin=dict(l=0, r=0, t=40, b=0)
-                        )
-                        
-                        # 調整 X 軸標籤顯示密度，避免日期字串全部擠在一起
-                        fig.update_xaxes(nticks=10)
-                        
-                        st.plotly_chart(fig, use_container_width=True)
-                    else:
-                        st.warning(f"找不到 {query_stock} 的技術資料，請確認代號是否正確。")
-                except Exception as e:
-                    st.error(f"線圖載入失敗: {e}")
+                    dates = display_df['date'].tolist()
+                    open_p = display_df['open'].tolist()
+                    high_p = display_df['high'].tolist()
+                    low_p = display_df['low'].tolist()
+                    close_p = display_df['close'].tolist()
+                    ma20 = display_df['MA20'].tolist()
+                    ma60 = display_df['MA60'].tolist()
+                    
+                    fig = go.Figure(data=[go.Candlestick(x=dates,
+                                    open=open_p, high=high_p, low=low_p, close=close_p,
+                                    name="K線")])
+                    
+                    fig.add_trace(go.Scatter(x=dates, y=ma20, line=dict(color='orange', width=1.5), name='月線 (20MA)'))
+                    fig.add_trace(go.Scatter(x=dates, y=ma60, line=dict(color='blue', width=1.5), name='季線 (60MA)'))
+                    
+                    fig.update_layout(
+                        title=f"{query_stock} 近半年走勢圖", 
+                        xaxis_rangeslider_visible=False,
+                        xaxis_type='category', # 👈 強制設定為類別，讓 K 線連續不中斷，完美略過六日
+                        height=550,
+                        margin=dict(l=0, r=0, t=40, b=0)
+                    )
+                    
+                    # 避免下方日期標籤全部擠在一起
+                    fig.update_xaxes(nticks=10)
+                    
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.warning(f"找不到 {query_stock} 的技術資料，請確認代號是否正確。")
 
 if __name__ == "__main__":
     main()
