@@ -185,10 +185,11 @@ def main():
                 hist = fetch_stock_price(query_stock)
                 
                 if not hist.empty:
+                    # 💡 強制型別轉換：徹底杜絕 Plotly 將數字當成字串標籤的可能
                     numeric_cols = ['open', 'high', 'low', 'close', 'Trading_Volume']
                     hist[numeric_cols] = hist[numeric_cols].apply(pd.to_numeric, errors='coerce')
+                    hist['Trading_Volume'] = hist['Trading_Volume'].fillna(0) # 確保成交量沒有空值
                     
-                    # 💡 核心除錯護城河：強制日期轉換 ＋ 嚴格遞增排序 ＋ 濾除無效空值
                     hist['date'] = pd.to_datetime(hist['date'])
                     hist = hist.sort_values('date').dropna(subset=['close']).reset_index(drop=True)
                     
@@ -209,12 +210,28 @@ def main():
                     
                     display_df = hist.tail(120).copy()
                     
-                    dates = display_df['date']
-                    open_p, high_p, low_p, close_p = display_df['open'], display_df['high'], display_df['low'], display_df['close']
-                    volumes = display_df['Trading_Volume']
+                    # 💡 終極解法：使用 .tolist() 剝離 Pandas 外衣，讓 Plotly 只能乖乖畫數字
+                    dates = display_df['date'].tolist()
+                    open_p = display_df['open'].tolist()
+                    high_p = display_df['high'].tolist()
+                    low_p = display_df['low'].tolist()
+                    close_p = display_df['close'].tolist()
+                    volumes = display_df['Trading_Volume'].tolist()
+                    
+                    ma5 = display_df['MA5'].tolist()
+                    ma10 = display_df['MA10'].tolist()
+                    ma20 = display_df['MA20'].tolist()
+                    ma60 = display_df['MA60'].tolist()
+                    
+                    bb_upper = display_df['BB_upper'].tolist()
+                    bb_lower = display_df['BB_lower'].tolist()
+                    
+                    macd = display_df['MACD'].tolist()
+                    signal = display_df['Signal'].tolist()
+                    macd_hist = display_df['MACD_Hist'].tolist()
                     
                     stock_colors = ['#ef5350' if c >= o else '#26a69a' for c, o in zip(close_p, open_p)]
-                    macd_colors = ['#ef5350' if val >= 0 else '#26a69a' for val in display_df['MACD_Hist']]
+                    macd_colors = ['#ef5350' if val >= 0 else '#26a69a' for val in macd_hist]
                     
                     plot_rows = 1
                     row_heights = [0.6]
@@ -240,23 +257,23 @@ def main():
                                   increasing_line_color='#ef5350', decreasing_line_color='#26a69a'), row=1, col=1)
                     
                     if show_ma:
-                        fig.add_trace(go.Scatter(x=dates, y=display_df['MA5'], line=dict(color='#ff9800', width=1.5), name='5MA'), row=1, col=1)
-                        fig.add_trace(go.Scatter(x=dates, y=display_df['MA10'], line=dict(color='#e91e63', width=1.5), name='10MA'), row=1, col=1)
-                        fig.add_trace(go.Scatter(x=dates, y=display_df['MA20'], line=dict(color='#2196f3', width=1.5), name='20MA(月線)'), row=1, col=1)
-                        fig.add_trace(go.Scatter(x=dates, y=display_df['MA60'], line=dict(color='#9c27b0', width=2), name='60MA(季線)'), row=1, col=1)
+                        fig.add_trace(go.Scatter(x=dates, y=ma5, line=dict(color='#ff9800', width=1.5), name='5MA'), row=1, col=1)
+                        fig.add_trace(go.Scatter(x=dates, y=ma10, line=dict(color='#e91e63', width=1.5), name='10MA'), row=1, col=1)
+                        fig.add_trace(go.Scatter(x=dates, y=ma20, line=dict(color='#2196f3', width=1.5), name='20MA(月線)'), row=1, col=1)
+                        fig.add_trace(go.Scatter(x=dates, y=ma60, line=dict(color='#9c27b0', width=2), name='60MA(季線)'), row=1, col=1)
                     
                     if show_bb:
-                        fig.add_trace(go.Scatter(x=dates, y=display_df['BB_upper'], line=dict(color='rgba(158,158,158,0.5)', width=1, dash='dash'), name='布林上軌'), row=1, col=1)
-                        fig.add_trace(go.Scatter(x=dates, y=display_df['BB_lower'], line=dict(color='rgba(158,158,158,0.5)', width=1, dash='dash'), fill='tonexty', fillcolor='rgba(158,158,158,0.1)', name='布林下軌'), row=1, col=1)
+                        fig.add_trace(go.Scatter(x=dates, y=bb_upper, line=dict(color='rgba(158,158,158,0.5)', width=1, dash='dash'), name='布林上軌'), row=1, col=1)
+                        fig.add_trace(go.Scatter(x=dates, y=bb_lower, line=dict(color='rgba(158,158,158,0.5)', width=1, dash='dash'), fill='tonexty', fillcolor='rgba(158,158,158,0.1)', name='布林下軌'), row=1, col=1)
 
                     if show_vol:
                         fig.add_trace(go.Bar(x=dates, y=volumes, marker_color=stock_colors, name='成交量', orientation='v'), row=vol_row, col=1)
                         fig.update_yaxes(title_text="成交量", row=vol_row, col=1)
 
                     if show_macd:
-                        fig.add_trace(go.Bar(x=dates, y=display_df['MACD_Hist'], marker_color=macd_colors, name='MACD 柱狀體', orientation='v'), row=macd_row, col=1)
-                        fig.add_trace(go.Scatter(x=dates, y=display_df['MACD'], line=dict(color='#2196f3', width=1.5), name='MACD 快線'), row=macd_row, col=1)
-                        fig.add_trace(go.Scatter(x=dates, y=display_df['Signal'], line=dict(color='#ff9800', width=1.5), name='MACD 慢線'), row=macd_row, col=1)
+                        fig.add_trace(go.Bar(x=dates, y=macd_hist, marker_color=macd_colors, name='MACD 柱狀體', orientation='v'), row=macd_row, col=1)
+                        fig.add_trace(go.Scatter(x=dates, y=macd, line=dict(color='#2196f3', width=1.5), name='MACD 快線'), row=macd_row, col=1)
+                        fig.add_trace(go.Scatter(x=dates, y=signal, line=dict(color='#ff9800', width=1.5), name='MACD 慢線'), row=macd_row, col=1)
                         fig.update_yaxes(title_text="MACD", row=macd_row, col=1)
 
                     chart_height = 500 if plot_rows == 1 else (650 if plot_rows == 2 else 800)
@@ -270,15 +287,20 @@ def main():
                         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
                     )
                     
-                    # 💡 確保只有在真有缺漏日期時才觸發 rangebreaks
-                    all_dates = pd.date_range(start=dates.min(), end=dates.max())
-                    missing_dates = all_dates.difference(dates).strftime("%Y-%m-%d").tolist()
+                    # 💡 暴力覆蓋：明確指定所有 X 軸是時間，Y 軸是數字
+                    for i in range(1, plot_rows + 1):
+                        fig.update_yaxes(type='linear', row=i, col=1)
+                        fig.update_xaxes(type='date', row=i, col=1)
+                        if i < plot_rows:
+                            fig.update_xaxes(showticklabels=False, row=i, col=1)
+
+                    # 完美隱藏假日空白
+                    all_dates = pd.date_range(start=display_df['date'].min(), end=display_df['date'].max())
+                    missing_dates = all_dates.difference(display_df['date']).strftime("%Y-%m-%d").tolist()
 
                     for i in range(1, plot_rows + 1):
                         if missing_dates:
                             fig.update_xaxes(rangebreaks=[dict(values=missing_dates)], row=i, col=1)
-                        if i < plot_rows:
-                            fig.update_xaxes(showticklabels=False, row=i, col=1)
 
                     st.plotly_chart(fig, use_container_width=True)
                 else:
