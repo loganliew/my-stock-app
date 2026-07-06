@@ -12,7 +12,8 @@ FINMIND_TOKEN = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ1c2VyX2lkIjoibG9nYW5saW
 # =================================================================
 # 🔍 0. 智慧快取：線上獲取股票代號與中文名稱對照表
 # =================================================================
-@st.cache(ttl=86400)
+# 💡 加上 allow_output_mutation=True 關閉擾人的變更警告
+@st.cache(ttl=86400, allow_output_mutation=True)
 def load_stock_name_map():
     url = "https://api.finmindtrade.com/api/v4/data"
     params = {"dataset": "TaiwanStockInfo", "token": FINMIND_TOKEN}
@@ -119,18 +120,22 @@ def calculate_fundamental_score(df, mom_dict):
         details = [] 
         
         if curr['單季 EPS (元)'] > 0: 
-            score += 5; details.append("✅ EPS > 0 (+5分)")
+            score += 5
+            details.append("✅ EPS > 0 (+5分)")
         else: 
-            score -= 5; details.append("❌ EPS <= 0 (-5分)")
+            score -= 5
+            details.append("❌ EPS <= 0 (-5分)")
             
         if prev is not None and curr['單季營收 (億元)'] > prev['單季營收 (億元)']:
-            score += 5; details.append("✅ 季度營收呈季增 (+5分)")
+            score += 5
+            details.append("✅ 季度營收呈季增 (+5分)")
         else:
             details.append("❌ 季度營收無季增 (0分)")
             
         if prev is not None and '單季毛利率 (%)' in curr and '單季毛利率 (%)' in prev:
             if curr['單季毛利率 (%)'] > prev['單季毛利率 (%)']:
-                score += 5; details.append("✅ 毛利率季增 (+5分)")
+                score += 5
+                details.append("✅ 毛利率季增 (+5分)")
             else:
                 details.append("❌ 毛利率無季增 (0分)")
         else:
@@ -140,7 +145,8 @@ def calculate_fundamental_score(df, mom_dict):
         if raw_stock_id in mom_dict:
             is_growth, month_name = mom_dict[raw_stock_id]
             if is_growth:
-                score += 6; details.append(f"✅ 月營收動能：{month_name} 營收 > 前月 (+6分)")
+                score += 6
+                details.append(f"✅ 月營收動能：{month_name} 營收 > 前月 (+6分)")
             else:
                 details.append(f"❌ 月營收動能：{month_name} 營收 <= 前月 (0分)")
         else:
@@ -180,7 +186,8 @@ def calculate_fundamental_score(df, mom_dict):
 # =================================================================
 # 📊 3. API 爬蟲區 (快取 12 小時防護)
 # =================================================================
-@st.cache(ttl=43200)
+# 💡 加上 allow_output_mutation=True 關閉擾人的變更警告
+@st.cache(ttl=43200, allow_output_mutation=True)
 def fetch_stock_price(stock_id):
     url = "https://api.finmindtrade.com/api/v4/data"
     start_date = (datetime.now() - timedelta(days=3650)).strftime('%Y-%m-%d')
@@ -197,7 +204,8 @@ def fetch_stock_price(stock_id):
     except Exception as e:
         return pd.DataFrame(), f"連線異常: {e}"
 
-@st.cache(ttl=43200)
+# 💡 加上 allow_output_mutation=True 關閉擾人的變更警告
+@st.cache(ttl=43200, allow_output_mutation=True)
 def fetch_chip_data(stock_id):
     url = "https://api.finmindtrade.com/api/v4/data"
     start_date = (datetime.now() - timedelta(days=40)).strftime('%Y-%m-%d')
@@ -290,7 +298,7 @@ def main():
                 chip_raw, chip_msg = fetch_chip_data(query_stock) 
                 
                 if not hist_raw.empty:
-                    # 💡 終極防護：影印一份資料，避免污染 Streamlit 的快取記憶體！
+                    # 💡 安全起見，還是複製一份避免干擾原始快取指標
                     hist = hist_raw.copy()
                     
                     numeric_cols = ['open', 'high', 'low', 'close', 'Trading_Volume']
@@ -368,7 +376,6 @@ def main():
                     c_details = []
                     
                     if not chip_raw.empty:
-                        # 💡 終極防護：同樣要影印一份籌碼資料，避免污染快取！
                         chip_df = chip_raw.copy()
                         
                         chip_df['buy'] = pd.to_numeric(chip_df['buy'].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
