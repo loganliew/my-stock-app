@@ -12,7 +12,6 @@ FINMIND_TOKEN = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ1c2VyX2lkIjoibG9nYW5saW
 # =================================================================
 # 🔍 0. 智慧快取：線上獲取股票代號與中文名稱對照表
 # =================================================================
-# 💡 加上 allow_output_mutation=True 關閉擾人的變更警告
 @st.cache(ttl=86400, allow_output_mutation=True)
 def load_stock_name_map():
     url = "https://api.finmindtrade.com/api/v4/data"
@@ -120,22 +119,18 @@ def calculate_fundamental_score(df, mom_dict):
         details = [] 
         
         if curr['單季 EPS (元)'] > 0: 
-            score += 5
-            details.append("✅ EPS > 0 (+5分)")
+            score += 5; details.append("✅ EPS > 0 (+5分)")
         else: 
-            score -= 5
-            details.append("❌ EPS <= 0 (-5分)")
+            score -= 5; details.append("❌ EPS <= 0 (-5分)")
             
         if prev is not None and curr['單季營收 (億元)'] > prev['單季營收 (億元)']:
-            score += 5
-            details.append("✅ 季度營收呈季增 (+5分)")
+            score += 5; details.append("✅ 季度營收呈季增 (+5分)")
         else:
             details.append("❌ 季度營收無季增 (0分)")
             
         if prev is not None and '單季毛利率 (%)' in curr and '單季毛利率 (%)' in prev:
             if curr['單季毛利率 (%)'] > prev['單季毛利率 (%)']:
-                score += 5
-                details.append("✅ 毛利率季增 (+5分)")
+                score += 5; details.append("✅ 毛利率季增 (+5分)")
             else:
                 details.append("❌ 毛利率無季增 (0分)")
         else:
@@ -145,8 +140,7 @@ def calculate_fundamental_score(df, mom_dict):
         if raw_stock_id in mom_dict:
             is_growth, month_name = mom_dict[raw_stock_id]
             if is_growth:
-                score += 6
-                details.append(f"✅ 月營收動能：{month_name} 營收 > 前月 (+6分)")
+                score += 6; details.append(f"✅ 月營收動能：{month_name} 營收 > 前月 (+6分)")
             else:
                 details.append(f"❌ 月營收動能：{month_name} 營收 <= 前月 (0分)")
         else:
@@ -184,9 +178,8 @@ def calculate_fundamental_score(df, mom_dict):
     return scored_df
 
 # =================================================================
-# 📊 3. API 爬蟲區 (快取 12 小時防護)
+# 📊 3. API 爬蟲區 
 # =================================================================
-# 💡 加上 allow_output_mutation=True 關閉擾人的變更警告
 @st.cache(ttl=43200, allow_output_mutation=True)
 def fetch_stock_price(stock_id):
     url = "https://api.finmindtrade.com/api/v4/data"
@@ -204,7 +197,6 @@ def fetch_stock_price(stock_id):
     except Exception as e:
         return pd.DataFrame(), f"連線異常: {e}"
 
-# 💡 加上 allow_output_mutation=True 關閉擾人的變更警告
 @st.cache(ttl=43200, allow_output_mutation=True)
 def fetch_chip_data(stock_id):
     url = "https://api.finmindtrade.com/api/v4/data"
@@ -225,10 +217,10 @@ def fetch_chip_data(stock_id):
 # 🖥️ 4. 前端介面展示 (Streamlit)
 # =================================================================
 def main():
-    st.set_page_config(page_title="台股 68 分終極量化評分系統", page_icon="🎯", layout="wide")
+    st.set_page_config(page_title="台股 93 分終極量化評分系統", page_icon="🎯", layout="wide")
     
-    st.title("🎯 台股 68 分終極量化評分系統")
-    st.write("📊 評分邏輯：基本面與營收(21) + 估值與技術面(30) + 法人籌碼動向(17) = 總分 68 分")
+    st.title("🎯 台股 93 分終極量化評分系統")
+    st.write("📊 評分邏輯：基本面與營收(21) + 估值、技術與大底(55) + 法人籌碼動向(17) = 總分 93 分")
     
     raw_df = load_and_clean_data()
     monthly_df = load_monthly_revenue_data()
@@ -264,7 +256,7 @@ def main():
 
         st.markdown("---")
 
-        st.header("📈 個股 68 分總結算與技術籌碼分析")
+        st.header("📈 個股 93 分總結算與技術籌碼分析")
         
         st.write("⚙️ **個股查詢與指標開關**")
         col_input, col_ma, col_bb, col_vol, col_macd, col_lt = st.columns([1.5, 2.5, 0.8, 1, 0.8, 1.5])
@@ -293,12 +285,11 @@ def main():
             show_long_term = st.checkbox("顯示10年大底/成本", value=True)
 
         if query_stock:
-            with st.spinner("即時調閱歷史數據，運算大底與技術指標中..."):
+            with st.spinner("即時調閱歷史數據，運算大底突破與技術指標中..."):
                 hist_raw, api_msg = fetch_stock_price(query_stock)
                 chip_raw, chip_msg = fetch_chip_data(query_stock) 
                 
                 if not hist_raw.empty:
-                    # 💡 安全起見，還是複製一份避免干擾原始快取指標
                     hist = hist_raw.copy()
                     
                     numeric_cols = ['open', 'high', 'low', 'close', 'Trading_Volume']
@@ -308,8 +299,10 @@ def main():
                     hist['date'] = pd.to_datetime(hist['date'])
                     hist = hist.sort_values('date').dropna(subset=['close']).reset_index(drop=True)
                     
+                    # 🟢 10 年歷史絕對大底
                     ten_year_low = hist['low'].min()
                     
+                    # 🔴 10 年主力成本密集區 (VPVR)
                     clean_hist = hist.dropna(subset=['close', 'Trading_Volume'])
                     if not clean_hist.empty:
                         hist_bins = pd.cut(clean_hist['close'], bins=50)
@@ -340,6 +333,7 @@ def main():
                     tech_score = 0
                     t_details = []
                     
+                    # === 【1. 估值計算】 ===
                     match_df = result_df[result_df['股票代號'].str.startswith(query_stock)]
                     ttm_eps = match_df.iloc[0]['近四季EPS總和'] if not match_df.empty else 0
                     close_price = latest['close']
@@ -354,7 +348,29 @@ def main():
                             t_details.append(f"❌ 估值偏高：本益比 {pe_ratio:.1f} 倍 >= 25 (0分)")
                     else:
                         t_details.append("❌ 近四季 EPS 為負值或無資料，無法計算本益比 (0分)")
+                        
+                    # === 🚀【新增】10年大底突破判定 (最高25分) ===
+                    # 判斷是否為今日剛剛「由下往上突破」任一大底線
+                    is_breakout = False
+                    for line in [ten_year_low, poc_price]:
+                        if prev['close'] <= line and latest['close'] > line:
+                            is_breakout = True
+                            break
+                            
+                    if is_breakout:
+                        tech_score += 25
+                        t_details.append("🚀 絕佳買點：股價今日強勢突破 10 年大底/成本線！(+25分)")
+                    elif latest['close'] < poc_price:
+                        # 以主力成本區作為破底判定基準，跌破成本代表陷入泥淖
+                        tech_score -= 5
+                        t_details.append(f"⚠️ 破底危機：股價落入 10 年大底成本區以下 (-5分)")
+                    elif latest['close'] > max(ten_year_low, poc_price):
+                        tech_score += 2
+                        t_details.append(f"✅ 長線多頭：股價穩居 10 年大底與主力成本之上 (+2分)")
+                    else:
+                        t_details.append("➖ 底部震盪：股價正處於歷史谷底與成本線之間 (0分)")
                     
+                    # === 【2. 技術面計算】 ===
                     if latest['MACD_Hist'] > 0:
                         tech_score += 5; t_details.append("✅ 技術動能：MACD 柱狀體為紅色 (+5分)")
                     else:
@@ -372,6 +388,7 @@ def main():
                     else:
                         tech_score += 5; t_details.append("✅ 技術位置：股價處於布林通道安全區間 (+5分)")
 
+                    # === 【3. 籌碼面計算】 ===
                     chip_score = 0
                     c_details = []
                     
@@ -435,28 +452,30 @@ def main():
                         
                     total_score = fund_score + tech_score + chip_score
                     
+                    # 💡 因應總分升級為 93 分，全面調高各個評級的觸發門檻
                     def get_final_rec(s):
-                        if s >= 50: return "🔥 強力買進"
-                        elif s >= 35: return "📈 買進"
-                        elif s >= 20: return "⚖️ 普通"
-                        elif s >= 0: return "📉 賣出"
+                        if s >= 75: return "🔥 強力買進"
+                        elif s >= 50: return "📈 買進"
+                        elif s >= 30: return "⚖️ 普通"
+                        elif s >= 10: return "📉 賣出"
                         else: return "❌ 強力賣出"
 
-                    st.markdown(f"### 🏆 {query_stock} 綜合 68 分總結算報告")
+                    st.markdown(f"### 🏆 {query_stock} 綜合 93 分總結算報告")
                     
                     colA, colB, colC, colD = st.columns(4)
                     colA.metric("📊 基本面動能", f"{fund_score} / 21 分")
-                    colB.metric("📈 估值與技術", f"{tech_score} / 30 分")
+                    # 技術面加上大底分數，滿分變為 55 分
+                    colB.metric("📈 估值、技術與大底", f"{tech_score} / 55 分")
                     colC.metric("🏦 法人籌碼", f"{chip_score} / 17 分")
                     colD.metric("🎯 最終總評級", f"{total_score} 分", get_final_rec(total_score))
                     
-                    with st.expander("📝 點此查看【基本面】、【技術面】與【籌碼面】給分明細"):
+                    with st.expander("📝 點此查看【基本面】、【大底與技術面】與【籌碼面】給分明細"):
                         col_dt1, col_dt2 = st.columns(2)
                         with col_dt1:
                             st.markdown("**【📊 基本面與營收動能】**")
                             for item in fund_details_str.split(" | "): st.write(item)
                         with col_dt2:
-                            st.markdown("**【📈 估值與技術面】**")
+                            st.markdown("**【📈 估值、大底與技術面】**")
                             for item in t_details: st.write(item)
                             st.markdown("---")
                             st.markdown("**【🏦 三大法人籌碼面】**")
