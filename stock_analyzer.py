@@ -119,22 +119,18 @@ def calculate_fundamental_score(df, mom_dict):
         details = [] 
         
         if curr['單季 EPS (元)'] > 0: 
-            score += 5
-            details.append("✅ EPS > 0 (+5分)")
+            score += 5; details.append("✅ EPS > 0 (+5分)")
         else: 
-            score -= 5
-            details.append("❌ EPS <= 0 (-5分)")
+            score -= 5; details.append("❌ EPS <= 0 (-5分)")
             
         if prev is not None and curr['單季營收 (億元)'] > prev['單季營收 (億元)']:
-            score += 5
-            details.append("✅ 季度營收呈季增 (+5分)")
+            score += 5; details.append("✅ 季度營收呈季增 (+5分)")
         else:
             details.append("❌ 季度營收無季增 (0分)")
             
         if prev is not None and '單季毛利率 (%)' in curr and '單季毛利率 (%)' in prev:
             if curr['單季毛利率 (%)'] > prev['單季毛利率 (%)']:
-                score += 5
-                details.append("✅ 毛利率季增 (+5分)")
+                score += 5; details.append("✅ 毛利率季增 (+5分)")
             else:
                 details.append("❌ 毛利率無季增 (0分)")
         else:
@@ -144,8 +140,7 @@ def calculate_fundamental_score(df, mom_dict):
         if raw_stock_id in mom_dict:
             is_growth, month_name = mom_dict[raw_stock_id]
             if is_growth:
-                score += 6
-                details.append(f"✅ 月營收動能：{month_name} 營收 > 前月 (+6分)")
+                score += 6; details.append(f"✅ 月營收動能：{month_name} 營收 > 前月 (+6分)")
             else:
                 details.append(f"❌ 月營收動能：{month_name} 營收 <= 前月 (0分)")
         else:
@@ -183,9 +178,9 @@ def calculate_fundamental_score(df, mom_dict):
     return scored_df
 
 # =================================================================
-# 📊 3. API 爬蟲區 (股價與法人籌碼)
+# 📊 3. API 爬蟲區 (快取 12 小時防護)
 # =================================================================
-@st.cache(ttl=43200) # 💡 換成舊版相容的快取指令
+@st.cache(ttl=43200)
 def fetch_stock_price(stock_id):
     url = "https://api.finmindtrade.com/api/v4/data"
     start_date = (datetime.now() - timedelta(days=3650)).strftime('%Y-%m-%d')
@@ -202,7 +197,7 @@ def fetch_stock_price(stock_id):
     except Exception as e:
         return pd.DataFrame(), f"連線異常: {e}"
 
-@st.cache(ttl=43200) # 💡 換成舊版相容的快取指令
+@st.cache(ttl=43200)
 def fetch_chip_data(stock_id):
     url = "https://api.finmindtrade.com/api/v4/data"
     start_date = (datetime.now() - timedelta(days=40)).strftime('%Y-%m-%d')
@@ -264,7 +259,6 @@ def main():
         st.header("📈 個股 68 分總結算與技術籌碼分析")
         
         st.write("⚙️ **個股查詢與指標開關**")
-        # 💡 為大底線開關增加一個欄位空間
         col_input, col_ma, col_bb, col_vol, col_macd, col_lt = st.columns([1.5, 2.5, 0.8, 1, 0.8, 1.5])
         
         with col_input:
@@ -291,11 +285,14 @@ def main():
             show_long_term = st.checkbox("顯示10年大底/成本", value=True)
 
         if query_stock:
-            with st.spinner("即時調閱 10 年級歷史數據，運算大底與技術指標中..."):
-                hist, api_msg = fetch_stock_price(query_stock)
-                chip_df, chip_msg = fetch_chip_data(query_stock) 
+            with st.spinner("即時調閱歷史數據，運算大底與技術指標中..."):
+                hist_raw, api_msg = fetch_stock_price(query_stock)
+                chip_raw, chip_msg = fetch_chip_data(query_stock) 
                 
-                if not hist.empty:
+                if not hist_raw.empty:
+                    # 💡 終極防護：影印一份資料，避免污染 Streamlit 的快取記憶體！
+                    hist = hist_raw.copy()
+                    
                     numeric_cols = ['open', 'high', 'low', 'close', 'Trading_Volume']
                     hist[numeric_cols] = hist[numeric_cols].apply(pd.to_numeric, errors='coerce')
                     hist['Trading_Volume'] = hist['Trading_Volume'].fillna(0)
@@ -303,23 +300,17 @@ def main():
                     hist['date'] = pd.to_datetime(hist['date'])
                     hist = hist.sort_values('date').dropna(subset=['close']).reset_index(drop=True)
                     
-                    # === 🟢 大數據運算：10 年歷史大底線 ===
                     ten_year_low = hist['low'].min()
                     
-                    # === 🔴 大數據運算：10 年主力成本線 (VPVR 最大交易區間) ===
                     clean_hist = hist.dropna(subset=['close', 'Trading_Volume'])
                     if not clean_hist.empty:
-                        # 將 10 年的價格切成 50 個等份的價格區間 (Bins)
                         hist_bins = pd.cut(clean_hist['close'], bins=50)
-                        # 算出每一個價格區間累積的總成交量
                         vol_by_bin = clean_hist.groupby(hist_bins, observed=False)['Trading_Volume'].sum()
-                        # 找出累積成交量最大的那個區間，並取它的中間值作為主力成本線
                         max_vol_bin = vol_by_bin.idxmax()
                         poc_price = max_vol_bin.mid
                     else:
-                        poc_price = hist['close'].mean() # 防呆
+                        poc_price = hist['close'].mean()
                     
-                    # === 傳統技術指標計算 ===
                     hist['MA5'] = hist['close'].rolling(window=5).mean()
                     hist['MA10'] = hist['close'].rolling(window=10).mean()
                     hist['MA20'] = hist['close'].rolling(window=20).mean()
@@ -341,7 +332,6 @@ def main():
                     tech_score = 0
                     t_details = []
                     
-                    # === 【1. 估值計算】 ===
                     match_df = result_df[result_df['股票代號'].str.startswith(query_stock)]
                     ttm_eps = match_df.iloc[0]['近四季EPS總和'] if not match_df.empty else 0
                     close_price = latest['close']
@@ -357,7 +347,6 @@ def main():
                     else:
                         t_details.append("❌ 近四季 EPS 為負值或無資料，無法計算本益比 (0分)")
                     
-                    # === 【2. 技術面計算】 ===
                     if latest['MACD_Hist'] > 0:
                         tech_score += 5; t_details.append("✅ 技術動能：MACD 柱狀體為紅色 (+5分)")
                     else:
@@ -375,11 +364,13 @@ def main():
                     else:
                         tech_score += 5; t_details.append("✅ 技術位置：股價處於布林通道安全區間 (+5分)")
 
-                    # === 【3. 籌碼面計算】 ===
                     chip_score = 0
                     c_details = []
                     
-                    if not chip_df.empty:
+                    if not chip_raw.empty:
+                        # 💡 終極防護：同樣要影印一份籌碼資料，避免污染快取！
+                        chip_df = chip_raw.copy()
+                        
                         chip_df['buy'] = pd.to_numeric(chip_df['buy'].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
                         chip_df['sell'] = pd.to_numeric(chip_df['sell'].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
                         chip_df['date'] = pd.to_datetime(chip_df['date'])
@@ -466,7 +457,6 @@ def main():
                             
                     st.markdown("---")
 
-                    # 💡 為了視覺清晰，我們把要顯示的區間切回到近 120 天，才不會被 10 年的蠟燭圖擠爆畫面
                     display_df = hist.tail(120).copy()
                     dates = display_df['date'].tolist()
                     open_p, high_p, low_p, close_p = display_df['open'].tolist(), display_df['high'].tolist(), display_df['low'].tolist(), display_df['close'].tolist()
@@ -497,7 +487,6 @@ def main():
                         fig.add_trace(go.Scatter(x=dates, y=bb_upper, line=dict(color='rgba(158,158,158,0.5)', width=1, dash='dash'), name='布林上軌'), row=1, col=1)
                         fig.add_trace(go.Scatter(x=dates, y=bb_lower, line=dict(color='rgba(158,158,158,0.5)', width=1, dash='dash'), fill='tonexty', fillcolor='rgba(158,158,158,0.1)', name='布林下軌'), row=1, col=1)
 
-                    # 💡 將精算出來的 10 年大底與主力成本線畫上去！
                     if show_long_term:
                         fig.add_trace(go.Scatter(x=dates, y=[ten_year_low]*len(dates), line=dict(color='#00e676', width=2, dash='dashdot'), name=f'10年歷史大底 ({ten_year_low:.2f})'), row=1, col=1)
                         fig.add_trace(go.Scatter(x=dates, y=[poc_price]*len(dates), line=dict(color='#d50000', width=2, dash='dashdot'), name=f'10年主力成本區 ({poc_price:.2f})'), row=1, col=1)
