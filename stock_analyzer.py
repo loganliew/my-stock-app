@@ -185,6 +185,7 @@ def calculate_fundamental_score(df, mom_dict):
 # =================================================================
 # 📊 3. API 爬蟲區 (股價與法人籌碼)
 # =================================================================
+@st.cache_data(ttl=43200) # 💡 加上這行：快取 12 小時，避免重複消耗 API 額度
 def fetch_stock_price(stock_id):
     url = "https://api.finmindtrade.com/api/v4/data"
     # 💡 核心升級：為了算出 10 年大底與籌碼密集區，直接索取過去 10 年 (3650天) 的股價歷史！
@@ -201,7 +202,7 @@ def fetch_stock_price(stock_id):
         return pd.DataFrame(), "無近期交易資料"
     except Exception as e:
         return pd.DataFrame(), f"連線異常: {e}"
-
+@st.cache_data(ttl=43200) # 💡 籌碼資料也加上這行！
 def fetch_chip_data(stock_id):
     url = "https://api.finmindtrade.com/api/v4/data"
     # 籌碼面只算連續天數，所以只抓近 40 天，保護 API 效能
