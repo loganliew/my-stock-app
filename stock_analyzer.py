@@ -7,7 +7,7 @@ from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
 
 # 🔑 讀取名稱對照表專用的 API 通行證
-FINMIND_TOKEN = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ1c2VyX2lkIjoibG9nYW5saWV3IiwiZW1haWwiOiJzMjI3MDIyMjZAZ21haWwuY29tIiwidG9rZW5fdmVyc2lvbiI6MH0.j2WUIuC7PJGNKSwAviyTbj0bwuq8AJUmd4rWVQ9rUOY" 
+FINMIND_TOKEN = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ1c2VyX2lkIjoibG9nYW5saWV3IiwiZW1haWwiOiJsb2dhbl9saWFvQGNvbXBhbC5jb20iLCJ0b2tlbl92ZXJzaW9uIjowfQ.SDAxrNB7rCB7svBIRokVAzwbk3Ib3V82HP-ulzQbFbo" 
 
 # =================================================================
 # 🔍 0. 智慧快取：線上獲取股票代號與中文名稱對照表
@@ -180,7 +180,7 @@ def calculate_fundamental_score(df, mom_dict):
     return scored_df
 
 # =================================================================
-# 📊 3. 穩定版：FinMind 股價爬蟲 (直接回傳 API 真實訊息)
+# 📊 3. 穩定版：FinMind 股價爬蟲 (精準攔截 402 額度耗盡錯誤)
 # =================================================================
 def fetch_stock_price(stock_id):
     url = "https://api.finmindtrade.com/api/v4/data"
@@ -195,13 +195,15 @@ def fetch_stock_price(stock_id):
     try:
         res = requests.get(url, params=params, timeout=10)
         
-        # 防止伺服器回傳 500/504 等非 JSON 錯誤
+        # 💡 攔截 402 錯誤，直接翻譯成人話
+        if res.status_code == 402:
+            return pd.DataFrame(), "HTTP 402：您的 API 免費查詢額度已耗盡！請等待一小時讓系統重置額度。"
+            
         if res.status_code != 200:
             return pd.DataFrame(), f"HTTP {res.status_code} 錯誤"
             
         data = res.json()
         
-        # 💡 成功拿到資料的條件
         if data.get("msg") == "success":
             if len(data.get("data", [])) > 0:
                 df = pd.DataFrame(data["data"])
@@ -210,7 +212,6 @@ def fetch_stock_price(stock_id):
             else:
                 return pd.DataFrame(), "該股票代號無近期交易資料"
         else:
-            # 💡 把真實的錯誤原因回傳給前端 (例如: "user is over limit")
             return pd.DataFrame(), str(data.get("msg", "未知錯誤"))
             
     except Exception as e:
@@ -283,7 +284,6 @@ def main():
 
         if query_stock:
             with st.spinner("即時運算技術指標與總分中..."):
-                # 💡 接收包含真實錯誤訊息的 tuple
                 hist, api_msg = fetch_stock_price(query_stock)
                 
                 if not hist.empty:
@@ -437,9 +437,9 @@ def main():
 
                     st.plotly_chart(fig, use_container_width=True)
                 else:
-                    # 💡 判斷並顯示 API 回傳的真實訊息
-                    if "limit" in api_msg.lower() or "too many" in api_msg.lower():
-                        st.error(f"🛑 【系統提示】API 查詢額度已達上限！(伺服器回傳: {api_msg})。請稍等一小時後再試。")
+                    # 💡 更明確地捕捉並高亮 402 額度錯誤
+                    if "402" in api_msg or "limit" in api_msg.lower() or "too many" in api_msg.lower():
+                        st.error(f"🛑 【系統提示】{api_msg}")
                     elif api_msg == "該股票代號無近期交易資料":
                         st.warning(f"找不到 {query_stock} 的技術資料，請確認該代號是否正確。")
                     else:
