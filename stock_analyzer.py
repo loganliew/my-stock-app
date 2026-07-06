@@ -202,9 +202,7 @@ def fetch_stock_price(stock_id):
         return pd.DataFrame(), f"連線異常: {e}"
 
 def fetch_chip_data(stock_id):
-    """💡 新增：即時抓取三大法人買賣超資料"""
     url = "https://api.finmindtrade.com/api/v4/data"
-    # 往前抓 40 天確保一定能涵蓋到最近的 10 個「交易日」
     start_date = (datetime.now() - timedelta(days=40)).strftime('%Y-%m-%d')
     params = {"dataset": "TaiwanStockInstitutionalInvestorsBuySell", "data_id": str(stock_id), "start_date": start_date, "token": FINMIND_TOKEN}
     try:
@@ -267,7 +265,7 @@ def main():
         col_input, col_ma, col_bb, col_vol, col_macd = st.columns([1.5, 3, 1, 1, 1])
         
         with col_input:
-            query_stock_raw = st.text_input("🔍 輸入代號並按 Enter", "2330")
+            query_stock_raw = st.text_input("🔍 輸入代號並按 Enter", "2324")
             query_stock = query_stock_raw.split()[0].strip() if query_stock_raw else ""
             
         with col_ma:
@@ -289,7 +287,7 @@ def main():
         if query_stock:
             with st.spinner("即時運算估值、技術指標與法人籌碼中..."):
                 hist, api_msg = fetch_stock_price(query_stock)
-                chip_df, chip_msg = fetch_chip_data(query_stock) # 💡 新增抓取籌碼
+                chip_df, chip_msg = fetch_chip_data(query_stock) 
                 
                 if not hist.empty:
                     numeric_cols = ['open', 'high', 'low', 'close', 'Trading_Volume']
@@ -361,12 +359,15 @@ def main():
                     c_details = []
                     
                     if not chip_df.empty:
+                        # 💡 防呆過濾：剝除可能含有的千分位逗號，並轉為純數字計算
+                        chip_df['buy'] = pd.to_numeric(chip_df['buy'].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
+                        chip_df['sell'] = pd.to_numeric(chip_df['sell'].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
                         chip_df['date'] = pd.to_datetime(chip_df['date'])
                         chip_df['net'] = chip_df['buy'] - chip_df['sell']
                         
-                        # 篩選外資與投信
-                        f_df = chip_df[chip_df['name'].str.contains('外資|陸資', na=False)]
-                        t_df = chip_df[chip_df['name'].str.contains('投信', na=False)]
+                        # 💡 中英雙語通吃：篩選外資與投信 (對應 API 可能回傳的 Foreign / Trust)
+                        f_df = chip_df[chip_df['name'].astype(str).str.contains('外資|陸資|Foreign', case=False, na=False)]
+                        t_df = chip_df[chip_df['name'].astype(str).str.contains('投信|Trust|Investment', case=False, na=False)]
                         
                         f_daily = f_df.groupby('date')['net'].sum().sort_index(ascending=False)
                         t_daily = t_df.groupby('date')['net'].sum().sort_index(ascending=False)
@@ -420,7 +421,6 @@ def main():
                         
                     total_score = fund_score + tech_score + chip_score
                     
-                    # 💡 滿分升級為 68 分，調整評級門檻
                     def get_final_rec(s):
                         if s >= 50: return "🔥 強力買進"
                         elif s >= 35: return "📈 買進"
@@ -430,7 +430,6 @@ def main():
 
                     st.markdown(f"### 🏆 {query_stock} 綜合 68 分總結算報告")
                     
-                    # 改為 4 個區塊顯示各面向得分
                     colA, colB, colC, colD = st.columns(4)
                     colA.metric("📊 基本面動能", f"{fund_score} / 21 分")
                     colB.metric("📈 估值與技術", f"{tech_score} / 30 分")
