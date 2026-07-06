@@ -26,10 +26,9 @@ def load_stock_name_map():
     return {}
 
 # =================================================================
-# 📂 1. 資料讀取與清洗區 (財報與月營收雙資料庫讀取)
+# 📂 1. 資料讀取與清洗區 
 # =================================================================
 def load_and_clean_data():
-    """讀取季度財報 CSV"""
     file_path = os.path.join("data", "tw_eps_revenue.csv")
     if not os.path.exists(file_path):
         return None
@@ -60,7 +59,6 @@ def load_and_clean_data():
         return None
 
 def load_monthly_revenue_data():
-    """讀取月營收 CSV"""
     file_path = os.path.join("data", "tw_monthly_revenue.csv")
     if not os.path.exists(file_path):
         return None
@@ -80,20 +78,17 @@ def load_monthly_revenue_data():
     return df
 
 def calculate_monthly_mom_status(monthly_df):
-    """計算每檔股票最新一個月營收是否大於前一個月營收"""
     if monthly_df is None or monthly_df.empty:
         return {}
     
     mom_dict = {}
-    # 確保按年月正向排序
     monthly_df = monthly_df.sort_values(by=['股票代號', '年月'])
     
     for stock_id, group in monthly_df.groupby('股票代號'):
-        # 過濾掉無資料的空殼行
         valid_group = group[group['年月'] != '無資料']
         if len(valid_group) >= 2:
-            curr_m = valid_group.iloc[-1] # 最新月份
-            prev_m = valid_group.iloc[-2] # 前一月份
+            curr_m = valid_group.iloc[-1]
+            prev_m = valid_group.iloc[-2]
             
             is_growth = float(curr_m['單月營收 (億元)']) > float(prev_m['單月營收 (億元)'])
             mom_dict[str(stock_id)] = (is_growth, curr_m['年月'])
@@ -103,7 +98,7 @@ def calculate_monthly_mom_status(monthly_df):
     return mom_dict
 
 # =================================================================
-# 🧮 2. 第一階段：基本面評分 (滿分 21 分，加入月營收MoM動能)
+# 🧮 2. 第一階段：基本面評分 (滿分 21 分)
 # =================================================================
 def calculate_fundamental_score(df, mom_dict):
     scores = []
@@ -112,7 +107,6 @@ def calculate_fundamental_score(df, mom_dict):
         group = group.sort_values('季度名稱')
         if len(group) == 0: continue
         
-        # 排除無資料的建檔行
         valid_group = group[group['季度名稱'] != '無資料']
         if valid_group.empty: continue
         
@@ -122,7 +116,6 @@ def calculate_fundamental_score(df, mom_dict):
         score = 0
         details = [] 
         
-        # 條件 1: 最新 EPS > 0 (+5 分，否則 -5 分)
         if curr['單季 EPS (元)'] > 0: 
             score += 5
             details.append("✅ EPS > 0 (+5分)")
@@ -130,14 +123,12 @@ def calculate_fundamental_score(df, mom_dict):
             score -= 5
             details.append("❌ EPS <= 0 (-5分)")
             
-        # 條件 2: 營收 > 上季營收 (+5分)
         if prev is not None and curr['單季營收 (億元)'] > prev['單季營收 (億元)']:
             score += 5
             details.append("✅ 季度營收呈季增 (+5分)")
         else:
             details.append("❌ 季度營收無季增 (0分)")
             
-        # 條件 3: 毛利率 > 上季毛利率 (+5分)
         if prev is not None and '單季毛利率 (%)' in curr and '單季毛利率 (%)' in prev:
             if curr['單季毛利率 (%)'] > prev['單季毛利率 (%)']:
                 score += 5
@@ -147,8 +138,7 @@ def calculate_fundamental_score(df, mom_dict):
         else:
             details.append("❌ 缺毛利率資料 (0分)")
             
-        # 💡 條件 7 (新需求): 最新單月營收 > 前一月營收 (+6分，否則 0分)
-        raw_stock_id = stock.split()[0] # 剝離名稱，還原成純4位數代碼
+        raw_stock_id = stock.split()[0]
         if raw_stock_id in mom_dict:
             is_growth, month_name = mom_dict[raw_stock_id]
             if is_growth:
@@ -190,7 +180,7 @@ def calculate_fundamental_score(df, mom_dict):
     return scored_df
 
 # =================================================================
-# 📊 3. 穩定版：FinMind 股價爬蟲
+# 📊 3. 穩定版：FinMind 股價爬蟲 (新增限流警告與防呆)
 # =================================================================
 def fetch_stock_price(stock_id):
     url = "https://api.finmindtrade.com/api/v4/data"
@@ -205,12 +195,20 @@ def fetch_stock_price(stock_id):
     try:
         res = requests.get(url, params=params, timeout=10)
         data = res.json()
+        
+        # 💡 新增：老實告訴使用者是不是 API 爆掉了
+        if "Too Many Requests" in data.get("msg", ""):
+            st.error("🛑 【系統提示】您的 FinMind API 查詢次數已達每小時上限！這通常是因為後端爬蟲正在大量抓資料，請稍候一小時再查詢技術線圖。")
+            return pd.DataFrame()
+            
         if data.get("msg") == "success" and len(data.get("data", [])) > 0:
             df = pd.DataFrame(data["data"])
             df = df.rename(columns={'max': 'high', 'min': 'low'})
             return df
-    except Exception:
+    except Exception as e:
+        st.error(f"連線異常: {e}")
         pass
+        
     return pd.DataFrame()
 
 # =================================================================
@@ -222,7 +220,6 @@ def main():
     st.title("🎯 台股 41 分量化評分系統")
     st.write("📊 評分邏輯：基本面與月營收動能 (21分) + 技術面籌碼 (20分) = 總分 41 分")
     
-    # 智慧加載財報與月營收
     raw_df = load_and_clean_data()
     monthly_df = load_monthly_revenue_data()
     mom_dict = calculate_monthly_mom_status(monthly_df)
@@ -254,16 +251,16 @@ def main():
 
         st.markdown("---")
 
-        # ==========================================
-        # 📈 第三區塊：個股 41 分總結算與技術線圖
-        # ==========================================
         st.header("📈 個股 41 分總結算與技術分析")
         
         st.write("⚙️ **個股查詢與指標開關**")
         col_input, col_ma, col_bb, col_vol, col_macd = st.columns([1.5, 3, 1, 1, 1])
         
         with col_input:
-            query_stock = st.text_input("🔍 輸入代號並按 Enter", "2330")
+            query_stock_raw = st.text_input("🔍 輸入代號並按 Enter", "2330")
+            # 💡 防呆機制：不管使用者輸入 "2303 " 還是 "2303 聯電"，自動過濾只留下純數字 2303
+            query_stock = query_stock_raw.split()[0].strip() if query_stock_raw else ""
+            
         with col_ma:
             ma_options = st.multiselect(
                 "📊 選擇顯示均線", 
@@ -334,7 +331,6 @@ def main():
                         tech_score += 5
                         t_details.append("✅ 股價處於布林通道安全區間 (+5分)")
 
-                    # 🔍 智慧抽取：調取對應代碼的基本面分數與給分明細
                     fund_score = 0
                     fund_details_str = "❌ 無基本面資料"
                     match_df = result_df[result_df['股票代號'].str.startswith(query_stock)]
@@ -352,8 +348,7 @@ def main():
                         elif s >= 0: return "📉 賣出"
                         else: return "❌ 強力賣出"
 
-                    # 🎨 更新總體檢面板顯示 (變更為21/20/41分制)
-                    st.markdown("### 🏆 個股 41 分總結算報告")
+                    st.markdown(f"### 🏆 {query_stock} 綜合 41 分總結算報告")
                     colA, colB, colC = st.columns(3)
                     colA.metric("📊 基本面與月營收得分", f"{fund_score} / 21 分")
                     colB.metric("📈 技術面得分", f"{tech_score} / 20 分")
@@ -371,7 +366,6 @@ def main():
                             
                     st.markdown("---")
 
-                    # 繪製線圖 (略過假日的正統時間軸)
                     display_df = hist.tail(120).copy()
                     dates = display_df['date'].tolist()
                     open_p, high_p, low_p, close_p = display_df['open'].tolist(), display_df['high'].tolist(), display_df['low'].tolist(), display_df['close'].tolist()
@@ -438,7 +432,9 @@ def main():
 
                     st.plotly_chart(fig, use_container_width=True)
                 else:
-                    st.warning(f"找不到 {query_stock} 的技術資料，請確認代號是否正確。")
+                    # 如果不是額度滿了，就給這個一般錯誤
+                    if not "Too Many Requests" in globals().get('data', {}).get("msg", ""):
+                        st.warning(f"找不到 {query_stock} 的技術資料，請確認代號是否正確。")
 
 if __name__ == "__main__":
     main()
