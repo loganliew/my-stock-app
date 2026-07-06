@@ -26,7 +26,7 @@ def load_stock_name_map():
     return {}
 
 # =================================================================
-# 📂 1. 資料讀取與清洗區 (保留歷史季度以計算 QoQ)
+# 📂 1. 資料讀取與清洗區 
 # =================================================================
 def load_and_clean_data():
     file_path = os.path.join("data", "tw_eps_revenue.csv")
@@ -59,33 +59,45 @@ def load_and_clean_data():
         return None
 
 # =================================================================
-# 🧮 2. 第一階段：基本面評分 (滿分 15 分)
+# 🧮 2. 第一階段：基本面評分 (滿分 15 分，加入給分明細紀錄)
 # =================================================================
 def calculate_fundamental_score(df):
     scores = []
     
-    # 將每檔股票分組，抓取最新兩季來比較
     for stock, group in df.groupby('股票代號'):
         group = group.sort_values('季度名稱')
         if len(group) == 0: continue
         
-        curr = group.iloc[-1] # 最新一季
-        prev = group.iloc[-2] if len(group) > 1 else None # 上一季
+        curr = group.iloc[-1] 
+        prev = group.iloc[-2] if len(group) > 1 else None 
         
         score = 0
+        details = [] # 💡 用來蒐集這檔股票加減分的文字紀錄
         
-        # 條件 1: 最新 EPS > 0 (+5 分，否則 -5 分)
-        if curr['單季 EPS (元)'] > 0: score += 5
-        else: score -= 5
+        # 條件 1: 最新 EPS > 0
+        if curr['單季 EPS (元)'] > 0: 
+            score += 5
+            details.append("✅ EPS > 0 (+5分)")
+        else: 
+            score -= 5
+            details.append("❌ EPS <= 0 (-5分)")
             
-        # 條件 2: 營收 > 上季營收 (+5 分)
+        # 條件 2: 營收 > 上季營收
         if prev is not None and curr['單季營收 (億元)'] > prev['單季營收 (億元)']:
             score += 5
+            details.append("✅ 營收呈季增 (+5分)")
+        else:
+            details.append("❌ 營收無季增 (0分)")
             
-        # 條件 3: 毛利率 > 上季毛利率 (+5 分)
+        # 條件 3: 毛利率 > 上季毛利率
         if prev is not None and '單季毛利率 (%)' in curr and '單季毛利率 (%)' in prev:
             if curr['單季毛利率 (%)'] > prev['單季毛利率 (%)']:
                 score += 5
+                details.append("✅ 毛利率季增 (+5分)")
+            else:
+                details.append("❌ 毛利率無季增 (0分)")
+        else:
+            details.append("❌ 缺毛利率資料 (0分)")
                 
         scores.append({
             '股票代號': stock,
@@ -93,12 +105,12 @@ def calculate_fundamental_score(df):
             '單季 EPS (元)': curr['單季 EPS (元)'],
             '單季營收 (億元)': curr['單季營收 (億元)'],
             '單季毛利率 (%)': curr.get('單季毛利率 (%)', 0),
-            '基本面評分 (滿分15)': score
+            '基本面評分 (滿分15)': score,
+            '給分明細': " | ".join(details) # 💡 將紀錄串接成文字欄位
         })
         
     scored_df = pd.DataFrame(scores)
     
-    # 第一關建議 (滿分15)
     def get_fund_rec(s):
         if s >= 15: return "🔥 強力買進"
         elif s >= 10: return "📈 買進"
@@ -107,6 +119,12 @@ def calculate_fundamental_score(df):
         else: return "❌ 強力賣出"
             
     scored_df['基本面初評'] = scored_df['基本面評分 (滿分15)'].apply(get_fund_rec)
+    
+    # 調整欄位順序，讓明細排在分數和初評後面
+    cols = list(scored_df.columns)
+    cols.insert(cols.index('基本面初評') + 1, cols.pop(cols.index('給分明細')))
+    scored_df = scored_df[cols]
+    
     return scored_df
 
 # =================================================================
@@ -204,7 +222,6 @@ def main():
                     hist['date'] = pd.to_datetime(hist['date'])
                     hist = hist.sort_values('date').dropna(subset=['close']).reset_index(drop=True)
                     
-                    # 計算指標
                     hist['MA5'] = hist['close'].rolling(window=5).mean()
                     hist['MA10'] = hist['close'].rolling(window=10).mean()
                     hist['MA20'] = hist['close'].rolling(window=20).mean()
@@ -220,29 +237,24 @@ def main():
                     hist['Signal'] = hist['MACD'].ewm(span=9, adjust=False).mean()
                     hist['MACD_Hist'] = hist['MACD'] - hist['Signal']
                     
-                    # 🎯 【核心邏輯】計算第二階段：技術面 20 分
                     latest = hist.iloc[-1]
                     prev = hist.iloc[-2]
                     
                     tech_score = 0
                     t_details = []
                     
-                    # 條件 4: MACD 紅色柱狀 (+5分)
                     if latest['MACD_Hist'] > 0:
                         tech_score += 5
                         t_details.append("✅ MACD 柱狀體為紅色 (+5分)")
                     else:
                         t_details.append("❌ MACD 柱狀體非紅色 (0分)")
                         
-                    # 條件 5: MACD 黃金交叉 (+10分)
                     if latest['MACD'] > latest['Signal'] and prev['MACD'] <= prev['Signal']:
                         tech_score += 10
                         t_details.append("🔥 MACD 出現黃金交叉 (+10分)")
                     else:
                         t_details.append("❌ MACD 未出現黃金交叉 (0分)")
                         
-                    # 條件 6: 布林通道上下緣 5% (0分，否則+5分)
-                    # 距離計算 = (上軌 - 收盤價) / 上軌
                     dist_upper = (latest['BB_upper'] - latest['close']) / latest['BB_upper']
                     dist_lower = (latest['close'] - latest['BB_lower']) / latest['BB_lower']
                     
@@ -252,11 +264,14 @@ def main():
                         tech_score += 5
                         t_details.append("✅ 股價處於布林通道安全區間 (+5分)")
 
-                    # 🔍 抓出這檔股票的基本面分數組合總分
+                    # 🔍 抓出這檔股票的基本面分數與「給分明細」
                     fund_score = 0
+                    fund_details_str = "❌ 無基本面資料"
                     match_df = result_df[result_df['股票代號'].str.startswith(query_stock)]
+                    
                     if not match_df.empty:
                         fund_score = match_df.iloc[0]['基本面評分 (滿分15)']
+                        fund_details_str = match_df.iloc[0]['給分明細']
                         
                     total_score = fund_score + tech_score
                     
@@ -267,20 +282,26 @@ def main():
                         elif s >= 0: return "📉 賣出"
                         else: return "❌ 強力賣出"
 
-                    # 🎨 畫出超帥的 35 分評分面板
                     st.markdown("### 🏆 個股 35 分總結算報告")
                     colA, colB, colC = st.columns(3)
                     colA.metric("📊 基本面得分", f"{fund_score} / 15 分")
                     colB.metric("📈 技術面得分", f"{tech_score} / 20 分")
                     colC.metric("🎯 最終總評級", f"{total_score} 分", get_final_rec(total_score))
                     
-                    with st.expander("📝 點此查看技術面給分明細"):
+                    # 💡 將基本面和技術面的明細統整在同一個摺疊選單中
+                    with st.expander("📝 點此查看【基本面】與【技術面】給分明細"):
+                        st.markdown("**【📊 基本面給分明細】**")
+                        # 將用 " | " 串接的字串拆開，一行一行顯示
+                        for item in fund_details_str.split(" | "):
+                            st.write(item)
+                            
+                        st.markdown("---")
+                        st.markdown("**【📈 技術面給分明細】**")
                         for item in t_details:
                             st.write(item)
                             
                     st.markdown("---")
 
-                    # 繪製線圖
                     display_df = hist.tail(120).copy()
                     dates = display_df['date'].tolist()
                     open_p, high_p, low_p, close_p = display_df['open'].tolist(), display_df['high'].tolist(), display_df['low'].tolist(), display_df['close'].tolist()
