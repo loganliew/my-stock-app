@@ -180,7 +180,7 @@ def calculate_fundamental_score(df, mom_dict):
     return scored_df
 
 # =================================================================
-# 📊 3. 穩定版：FinMind 股價爬蟲 (新增限流警告與防呆)
+# 📊 3. 穩定版：FinMind 股價爬蟲 (直接回傳 API 真實訊息)
 # =================================================================
 def fetch_stock_price(stock_id):
     url = "https://api.finmindtrade.com/api/v4/data"
@@ -194,22 +194,27 @@ def fetch_stock_price(stock_id):
     }
     try:
         res = requests.get(url, params=params, timeout=10)
+        
+        # 防止伺服器回傳 500/504 等非 JSON 錯誤
+        if res.status_code != 200:
+            return pd.DataFrame(), f"HTTP {res.status_code} 錯誤"
+            
         data = res.json()
         
-        # 💡 新增：老實告訴使用者是不是 API 爆掉了
-        if "Too Many Requests" in data.get("msg", ""):
-            st.error("🛑 【系統提示】您的 FinMind API 查詢次數已達每小時上限！這通常是因為後端爬蟲正在大量抓資料，請稍候一小時再查詢技術線圖。")
-            return pd.DataFrame()
+        # 💡 成功拿到資料的條件
+        if data.get("msg") == "success":
+            if len(data.get("data", [])) > 0:
+                df = pd.DataFrame(data["data"])
+                df = df.rename(columns={'max': 'high', 'min': 'low'})
+                return df, "success"
+            else:
+                return pd.DataFrame(), "該股票代號無近期交易資料"
+        else:
+            # 💡 把真實的錯誤原因回傳給前端 (例如: "user is over limit")
+            return pd.DataFrame(), str(data.get("msg", "未知錯誤"))
             
-        if data.get("msg") == "success" and len(data.get("data", [])) > 0:
-            df = pd.DataFrame(data["data"])
-            df = df.rename(columns={'max': 'high', 'min': 'low'})
-            return df
     except Exception as e:
-        st.error(f"連線異常: {e}")
-        pass
-        
-    return pd.DataFrame()
+        return pd.DataFrame(), f"連線異常: {e}"
 
 # =================================================================
 # 🖥️ 4. 前端介面展示 (Streamlit)
@@ -258,7 +263,6 @@ def main():
         
         with col_input:
             query_stock_raw = st.text_input("🔍 輸入代號並按 Enter", "2330")
-            # 💡 防呆機制：不管使用者輸入 "2303 " 還是 "2303 聯電"，自動過濾只留下純數字 2303
             query_stock = query_stock_raw.split()[0].strip() if query_stock_raw else ""
             
         with col_ma:
@@ -279,7 +283,8 @@ def main():
 
         if query_stock:
             with st.spinner("即時運算技術指標與總分中..."):
-                hist = fetch_stock_price(query_stock)
+                # 💡 接收包含真實錯誤訊息的 tuple
+                hist, api_msg = fetch_stock_price(query_stock)
                 
                 if not hist.empty:
                     numeric_cols = ['open', 'high', 'low', 'close', 'Trading_Volume']
@@ -432,9 +437,13 @@ def main():
 
                     st.plotly_chart(fig, use_container_width=True)
                 else:
-                    # 如果不是額度滿了，就給這個一般錯誤
-                    if not "Too Many Requests" in globals().get('data', {}).get("msg", ""):
-                        st.warning(f"找不到 {query_stock} 的技術資料，請確認代號是否正確。")
+                    # 💡 判斷並顯示 API 回傳的真實訊息
+                    if "limit" in api_msg.lower() or "too many" in api_msg.lower():
+                        st.error(f"🛑 【系統提示】API 查詢額度已達上限！(伺服器回傳: {api_msg})。請稍等一小時後再試。")
+                    elif api_msg == "該股票代號無近期交易資料":
+                        st.warning(f"找不到 {query_stock} 的技術資料，請確認該代號是否正確。")
+                    else:
+                        st.warning(f"無法獲取 {query_stock} 的技術資料 (伺服器回傳: {api_msg})")
 
 if __name__ == "__main__":
     main()
