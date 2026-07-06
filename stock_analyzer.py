@@ -185,14 +185,13 @@ def calculate_fundamental_score(df, mom_dict):
 # =================================================================
 # 📊 3. API 爬蟲區 (股價與法人籌碼)
 # =================================================================
-@st.cache_data(ttl=43200) # 💡 加上這行：快取 12 小時，避免重複消耗 API 額度
+@st.cache(ttl=43200) # 💡 換成舊版相容的快取指令
 def fetch_stock_price(stock_id):
     url = "https://api.finmindtrade.com/api/v4/data"
-    # 💡 核心升級：為了算出 10 年大底與籌碼密集區，直接索取過去 10 年 (3650天) 的股價歷史！
     start_date = (datetime.now() - timedelta(days=3650)).strftime('%Y-%m-%d')
     params = {"dataset": "TaiwanStockPrice", "data_id": str(stock_id), "start_date": start_date, "token": FINMIND_TOKEN}
     try:
-        res = requests.get(url, params=params, timeout=15) # 10年資料較大，給15秒寬限
+        res = requests.get(url, params=params, timeout=15) 
         if res.status_code == 402: return pd.DataFrame(), "HTTP 402：API 額度已耗盡！"
         if res.status_code != 200: return pd.DataFrame(), f"HTTP {res.status_code} 錯誤"
         data = res.json()
@@ -202,10 +201,10 @@ def fetch_stock_price(stock_id):
         return pd.DataFrame(), "無近期交易資料"
     except Exception as e:
         return pd.DataFrame(), f"連線異常: {e}"
-@st.cache_data(ttl=43200) # 💡 籌碼資料也加上這行！
+
+@st.cache(ttl=43200) # 💡 換成舊版相容的快取指令
 def fetch_chip_data(stock_id):
     url = "https://api.finmindtrade.com/api/v4/data"
-    # 籌碼面只算連續天數，所以只抓近 40 天，保護 API 效能
     start_date = (datetime.now() - timedelta(days=40)).strftime('%Y-%m-%d')
     params = {"dataset": "TaiwanStockInstitutionalInvestorsBuySell", "data_id": str(stock_id), "start_date": start_date, "token": FINMIND_TOKEN}
     try:
