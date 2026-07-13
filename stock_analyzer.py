@@ -98,9 +98,9 @@ def calculate_monthly_mom_status(monthly_df):
     return mom_dict
 
 # =================================================================
-# 🧮 2. 第一階段：基本面評分 (滿分 21 分)
+# 🧮 2. 第一階段：基本面評分 (動態權重版)
 # =================================================================
-def calculate_fundamental_score(df, mom_dict):
+def calculate_fundamental_score(df, mom_dict, w):
     scores = []
     
     for stock, group in df.groupby('股票代號'):
@@ -119,18 +119,18 @@ def calculate_fundamental_score(df, mom_dict):
         details = [] 
         
         if curr['單季 EPS (元)'] > 0: 
-            score += 5; details.append("✅ EPS > 0 (+5分)")
+            score += w['eps_p']; details.append(f"✅ EPS > 0 (+{w['eps_p']}分)")
         else: 
-            score -= 5; details.append("❌ EPS <= 0 (-5分)")
+            score += w['eps_f']; details.append(f"❌ EPS <= 0 ({w['eps_f']}分)")
             
         if prev is not None and curr['單季營收 (億元)'] > prev['單季營收 (億元)']:
-            score += 5; details.append("✅ 季度營收呈季增 (+5分)")
+            score += w['rev_qoq']; details.append(f"✅ 季度營收呈季增 (+{w['rev_qoq']}分)")
         else:
             details.append("❌ 季度營收無季增 (0分)")
             
         if prev is not None and '單季毛利率 (%)' in curr and '單季毛利率 (%)' in prev:
             if curr['單季毛利率 (%)'] > prev['單季毛利率 (%)']:
-                score += 5; details.append("✅ 毛利率季增 (+5分)")
+                score += w['gm_qoq']; details.append(f"✅ 毛利率季增 (+{w['gm_qoq']}分)")
             else:
                 details.append("❌ 毛利率無季增 (0分)")
         else:
@@ -140,7 +140,7 @@ def calculate_fundamental_score(df, mom_dict):
         if raw_stock_id in mom_dict:
             is_growth, month_name = mom_dict[raw_stock_id]
             if is_growth:
-                score += 6; details.append(f"✅ 月營收動能：{month_name} 營收 > 前月 (+6分)")
+                score += w['rev_mom']; details.append(f"✅ 月營收動能：{month_name} 營收 > 前月 (+{w['rev_mom']}分)")
             else:
                 details.append(f"❌ 月營收動能：{month_name} 營收 <= 前月 (0分)")
         else:
@@ -153,7 +153,7 @@ def calculate_fundamental_score(df, mom_dict):
             '近四季EPS總和': ttm_eps, 
             '單季營收 (億元)': curr['單季營收 (億元)'],
             '單季毛利率 (%)': curr.get('單季毛利率 (%)', 0),
-            '基本面評分 (滿分21)': score,
+            '基本面評分': score,
             '給分明細': " | ".join(details) 
         })
         
@@ -162,14 +162,16 @@ def calculate_fundamental_score(df, mom_dict):
         
     scored_df = pd.DataFrame(scores)
     
+    # 依據動態權重決定基本面初評門檻
+    max_fund = w['eps_p'] + w['rev_qoq'] + w['gm_qoq'] + w['rev_mom']
     def get_fund_rec(s):
-        if s >= 18: return "🔥 強力買進"
-        elif s >= 12: return "📈 買進"
-        elif s >= 6: return "⚖️ 普通"
+        if s >= max_fund * 0.8: return "🔥 強力買進"
+        elif s >= max_fund * 0.5: return "📈 買進"
+        elif s >= max_fund * 0.2: return "⚖️ 普通"
         elif s >= 0: return "📉 賣出"
         else: return "❌ 強力賣出"
             
-    scored_df['基本面初評'] = scored_df['基本面評分 (滿分21)'].apply(get_fund_rec)
+    scored_df['基本面初評'] = scored_df['基本面評分'].apply(get_fund_rec)
     
     cols = list(scored_df.columns)
     cols.insert(cols.index('基本面初評') + 1, cols.pop(cols.index('給分明細')))
@@ -217,10 +219,66 @@ def fetch_chip_data(stock_id):
 # 🖥️ 4. 前端介面展示 (Streamlit)
 # =================================================================
 def main():
-    st.set_page_config(page_title="台股 93 分終極量化評分系統", page_icon="🎯", layout="wide")
+    st.set_page_config(page_title="台股量化策略實驗室", page_icon="🎯", layout="wide")
     
-    st.title("🎯 台股 93 分終極量化評分系統")
-    st.write("📊 評分邏輯：基本面與營收(21) + 估值、技術與大底(55) + 法人籌碼動向(17) = 總分 93 分")
+    # ==========================================
+    # ⚙️ 側邊欄：自訂權重參數設定區
+    # ==========================================
+    st.sidebar.header("⚙️ 策略權重設定面板")
+    st.sidebar.write("自由調整各項指標分數，打造你的專屬策略！")
+    
+    w = {} # 裝載所有權重的字典
+    
+    with st.sidebar.expander("📊 基本面與營收動能", expanded=False):
+        w['eps_p'] = st.number_input("✅ EPS > 0 加分", value=5, step=1)
+        w['eps_f'] = st.number_input("❌ EPS <= 0 扣分", value=-5, step=1)
+        w['rev_qoq'] = st.number_input("✅ 營收季增 加分", value=5, step=1)
+        w['gm_qoq'] = st.number_input("✅ 毛利季增 加分", value=5, step=1)
+        w['rev_mom'] = st.number_input("✅ 月營收月增 加分", value=6, step=1)
+
+    with st.sidebar.expander("📈 估值、大底與技術面", expanded=False):
+        st.write("**估值判斷**")
+        w['pe_safe'] = st.number_input("✅ 本益比 < 20 加分", value=10, step=1)
+        w['pe_warn'] = st.number_input("✅ 本益比 20~25 加分", value=3, step=1)
+        st.write("**歷史大底判定**")
+        w['btm_break'] = st.number_input("🚀 突破 10年大底 加分", value=25, step=1)
+        w['btm_above'] = st.number_input("✅ 在 10年大底之上 加分", value=2, step=1)
+        w['btm_below'] = st.number_input("⚠️ 跌破 10年大底 扣分", value=-5, step=1)
+        st.write("**短期技術面**")
+        w['macd_hist'] = st.number_input("✅ MACD 紅柱 加分", value=5, step=1)
+        w['macd_gc'] = st.number_input("🔥 MACD 黃金交叉 加分", value=10, step=1)
+        w['bb_safe'] = st.number_input("✅ 布林安全區 加分", value=5, step=1)
+
+    with st.sidebar.expander("🏦 法人籌碼動向", expanded=False):
+        st.write("**外資動向**")
+        w['fb_10'] = st.number_input("外資連買 >= 10天 加分", value=10, step=1)
+        w['fb_5'] = st.number_input("外資連買 >= 5天 加分", value=5, step=1)
+        w['fb_3'] = st.number_input("外資連買 >= 3天 加分", value=2, step=1)
+        w['fs_10'] = st.number_input("外資連賣 >= 10天 扣分", value=-10, step=1)
+        w['fs_5'] = st.number_input("外資連賣 >= 5天 扣分", value=-5, step=1)
+        w['fs_3'] = st.number_input("外資連賣 >= 3天 扣分", value=-2, step=1)
+        st.write("**投信動向**")
+        w['tb_10'] = st.number_input("投信連買 >= 10天 加分", value=7, step=1)
+        w['tb_5'] = st.number_input("投信連買 >= 5天 加分", value=3, step=1)
+        w['tb_3'] = st.number_input("投信連買 >= 3天 加分", value=1, step=1)
+        w['ts_10'] = st.number_input("投信連賣 >= 10天 扣分", value=-7, step=1)
+        w['ts_5'] = st.number_input("投信連賣 >= 5天 扣分", value=-3, step=1)
+        w['ts_3'] = st.number_input("投信連賣 >= 3天 扣分", value=-1, step=1)
+
+    # 動態計算理論滿分
+    max_fund = w['eps_p'] + w['rev_qoq'] + w['gm_qoq'] + w['rev_mom']
+    max_tech = w['pe_safe'] + w['btm_break'] + w['macd_hist'] + w['macd_gc'] + w['bb_safe']
+    max_chip = w['fb_10'] + w['tb_10']
+    total_max = max_fund + max_tech + max_chip
+
+    st.sidebar.markdown("---")
+    st.sidebar.success(f"🏆 當前策略理論滿分：**{total_max} 分**")
+
+    # ==========================================
+    # 🎯 主畫面區塊
+    # ==========================================
+    st.title(f"🎯 台股 {total_max} 分自訂量化策略實驗室")
+    st.write(f"📊 動態配分：基本面({max_fund}) + 估值與技術({max_tech}) + 籌碼({max_chip}) = 總分 {total_max} 分")
     
     raw_df = load_and_clean_data()
     monthly_df = load_monthly_revenue_data()
@@ -229,22 +287,24 @@ def main():
     result_df = pd.DataFrame()
     
     if raw_df is not None and not raw_df.empty:
-        result_df = calculate_fundamental_score(raw_df, mom_dict)
+        result_df = calculate_fundamental_score(raw_df, mom_dict, w)
         
         if not result_df.empty:
-            result_df = result_df.sort_values(by=['基本面評分 (滿分21)', '單季 EPS (元)'], ascending=[False, False]).reset_index(drop=True)
-            high_score_df = result_df[result_df['基本面評分 (滿分21)'] >= 12]
+            result_df = result_df.sort_values(by=['基本面評分', '單季 EPS (元)'], ascending=[False, False]).reset_index(drop=True)
+            # 動態快篩門檻：基本面拿滿分的 60% 才入選
+            filter_threshold = int(max_fund * 0.6)
+            high_score_df = result_df[result_df['基本面評分'] >= filter_threshold]
             
             st.markdown("---")
             
-            st.subheader(f"🏆 基本面與月營收優等生快篩 (滿分 21 分，共 {len(high_score_df)} 檔 >= 12 分)")
+            st.subheader(f"🏆 策略優等生快篩 (門檻 {filter_threshold} 分，共 {len(high_score_df)} 檔達標)")
             if not high_score_df.empty:
                 styled_high_score = high_score_df.style.format({
                     "單季營收 (億元)": "{:.2f}",
                     "單季 EPS (元)": "{:.2f}",
                     "單季毛利率 (%)": "{:.2f}",
                     "近四季EPS總和": "{:.2f}"
-                }).bar(subset=['基本面評分 (滿分21)'], color='#20c997', vmin=-5, vmax=21)
+                }).bar(subset=['基本面評分'], color='#20c997', vmin=0, vmax=max_fund)
                 
                 styled_high_score = styled_high_score.hide(subset=["近四季EPS總和"], axis="columns")
                 st.dataframe(styled_high_score)
@@ -256,7 +316,7 @@ def main():
 
         st.markdown("---")
 
-        st.header("📈 個股 93 分總結算與技術籌碼分析")
+        st.header(f"📈 個股 {total_max} 分總結算與技術籌碼分析")
         
         st.write("⚙️ **個股查詢與指標開關**")
         col_input, col_ma, col_bb, col_vol, col_macd, col_lt = st.columns([1.5, 2.5, 0.8, 1, 0.8, 1.5])
@@ -299,10 +359,8 @@ def main():
                     hist['date'] = pd.to_datetime(hist['date'])
                     hist = hist.sort_values('date').dropna(subset=['close']).reset_index(drop=True)
                     
-                    # 🟢 10 年歷史絕對大底
                     ten_year_low = hist['low'].min()
                     
-                    # 🔴 10 年主力成本密集區 (VPVR)
                     clean_hist = hist.dropna(subset=['close', 'Trading_Volume'])
                     if not clean_hist.empty:
                         hist_bins = pd.cut(clean_hist['close'], bins=50)
@@ -341,16 +399,15 @@ def main():
                     if ttm_eps > 0:
                         pe_ratio = close_price / ttm_eps
                         if pe_ratio < 20:
-                            tech_score += 10; t_details.append(f"✅ 估值安全：本益比 {pe_ratio:.1f} 倍 < 20 (+10分)")
+                            tech_score += w['pe_safe']; t_details.append(f"✅ 估值安全：本益比 {pe_ratio:.1f} 倍 < 20 (+{w['pe_safe']}分)")
                         elif pe_ratio < 25:
-                            tech_score += 3; t_details.append(f"✅ 估值合理：本益比 {pe_ratio:.1f} 倍介於 20~25 (+3分)")
+                            tech_score += w['pe_warn']; t_details.append(f"✅ 估值合理：本益比 {pe_ratio:.1f} 倍介於 20~25 (+{w['pe_warn']}分)")
                         else:
                             t_details.append(f"❌ 估值偏高：本益比 {pe_ratio:.1f} 倍 >= 25 (0分)")
                     else:
                         t_details.append("❌ 近四季 EPS 為負值或無資料，無法計算本益比 (0分)")
                         
-                    # === 🚀【新增】10年大底突破判定 (最高25分) ===
-                    # 判斷是否為今日剛剛「由下往上突破」任一大底線
+                    # === 【2. 大底突破判定】 ===
                     is_breakout = False
                     for line in [ten_year_low, poc_price]:
                         if prev['close'] <= line and latest['close'] > line:
@@ -358,26 +415,25 @@ def main():
                             break
                             
                     if is_breakout:
-                        tech_score += 25
-                        t_details.append("🚀 絕佳買點：股價今日強勢突破 10 年大底/成本線！(+25分)")
+                        tech_score += w['btm_break']
+                        t_details.append(f"🚀 絕佳買點：股價今日強勢突破 10 年大底/成本線！(+{w['btm_break']}分)")
                     elif latest['close'] < poc_price:
-                        # 以主力成本區作為破底判定基準，跌破成本代表陷入泥淖
-                        tech_score -= 5
-                        t_details.append(f"⚠️ 破底危機：股價落入 10 年大底成本區以下 (-5分)")
+                        tech_score += w['btm_below']
+                        t_details.append(f"⚠️ 破底危機：股價落入 10 年大底成本區以下 ({w['btm_below']}分)")
                     elif latest['close'] > max(ten_year_low, poc_price):
-                        tech_score += 2
-                        t_details.append(f"✅ 長線多頭：股價穩居 10 年大底與主力成本之上 (+2分)")
+                        tech_score += w['btm_above']
+                        t_details.append(f"✅ 長線多頭：股價穩居 10 年大底與主力成本之上 (+{w['btm_above']}分)")
                     else:
                         t_details.append("➖ 底部震盪：股價正處於歷史谷底與成本線之間 (0分)")
                     
-                    # === 【2. 技術面計算】 ===
+                    # === 【3. 技術面計算】 ===
                     if latest['MACD_Hist'] > 0:
-                        tech_score += 5; t_details.append("✅ 技術動能：MACD 柱狀體為紅色 (+5分)")
+                        tech_score += w['macd_hist']; t_details.append(f"✅ 技術動能：MACD 柱狀體為紅色 (+{w['macd_hist']}分)")
                     else:
                         t_details.append("❌ 技術動能：MACD 柱狀體非紅色 (0分)")
                         
                     if latest['MACD'] > latest['Signal'] and prev['MACD'] <= prev['Signal']:
-                        tech_score += 10; t_details.append("🔥 技術訊號：MACD 出現黃金交叉 (+10分)")
+                        tech_score += w['macd_gc']; t_details.append(f"🔥 技術訊號：MACD 出現黃金交叉 (+{w['macd_gc']}分)")
                     else:
                         t_details.append("❌ 技術訊號：MACD 未出現黃金交叉 (0分)")
                         
@@ -386,9 +442,9 @@ def main():
                     if dist_upper <= 0.05 or dist_lower <= 0.05:
                         t_details.append("❌ 技術位置：股價靠近布林通道邊緣 5% 內 (0分)")
                     else:
-                        tech_score += 5; t_details.append("✅ 技術位置：股價處於布林通道安全區間 (+5分)")
+                        tech_score += w['bb_safe']; t_details.append(f"✅ 技術位置：股價處於布林通道安全區間 (+{w['bb_safe']}分)")
 
-                    # === 【3. 籌碼面計算】 ===
+                    # === 【4. 籌碼面計算】 ===
                     chip_score = 0
                     c_details = []
                     
@@ -422,51 +478,50 @@ def main():
                         t_count, t_dir = count_consecutive(t_daily)
                         
                         if f_dir == 'buy':
-                            if f_count >= 10: chip_score += 10; c_details.append(f"🔥 外資連續買超 {f_count} 天 (+10分)")
-                            elif f_count >= 5: chip_score += 5; c_details.append(f"✅ 外資連續買超 {f_count} 天 (+5分)")
-                            elif f_count >= 3: chip_score += 2; c_details.append(f"✅ 外資連續買超 {f_count} 天 (+2分)")
+                            if f_count >= 10: chip_score += w['fb_10']; c_details.append(f"🔥 外資連續買超 {f_count} 天 (+{w['fb_10']}分)")
+                            elif f_count >= 5: chip_score += w['fb_5']; c_details.append(f"✅ 外資連續買超 {f_count} 天 (+{w['fb_5']}分)")
+                            elif f_count >= 3: chip_score += w['fb_3']; c_details.append(f"✅ 外資連續買超 {f_count} 天 (+{w['fb_3']}分)")
                             else: c_details.append(f"➖ 外資連續買超 {f_count} 天 (未達3天，0分)")
                         elif f_dir == 'sell':
-                            if f_count >= 10: chip_score -= 10; c_details.append(f"❌ 外資連續賣超 {f_count} 天 (-10分)")
-                            elif f_count >= 5: chip_score -= 5; c_details.append(f"❌ 外資連續賣超 {f_count} 天 (-5分)")
-                            elif f_count >= 3: chip_score -= 2; c_details.append(f"❌ 外資連續賣超 {f_count} 天 (-2分)")
+                            if f_count >= 10: chip_score += w['fs_10']; c_details.append(f"❌ 外資連續賣超 {f_count} 天 ({w['fs_10']}分)")
+                            elif f_count >= 5: chip_score += w['fs_5']; c_details.append(f"❌ 外資連續賣超 {f_count} 天 ({w['fs_5']}分)")
+                            elif f_count >= 3: chip_score += w['fs_3']; c_details.append(f"❌ 外資連續賣超 {f_count} 天 ({w['fs_3']}分)")
                             else: c_details.append(f"➖ 外資連續賣超 {f_count} 天 (未達3天，0分)")
                         else: c_details.append("➖ 外資近期無連續買賣超 (0分)")
                             
                         if t_dir == 'buy':
-                            if t_count >= 10: chip_score += 7; c_details.append(f"🔥 投信連續買超 {t_count} 天 (+7分)")
-                            elif t_count >= 5: chip_score += 3; c_details.append(f"✅ 投信連續買超 {t_count} 天 (+3分)")
-                            elif t_count >= 3: chip_score += 1; c_details.append(f"✅ 投信連續買超 {t_count} 天 (+1分)")
+                            if t_count >= 10: chip_score += w['tb_10']; c_details.append(f"🔥 投信連續買超 {t_count} 天 (+{w['tb_10']}分)")
+                            elif t_count >= 5: chip_score += w['tb_5']; c_details.append(f"✅ 投信連續買超 {t_count} 天 (+{w['tb_5']}分)")
+                            elif t_count >= 3: chip_score += w['tb_3']; c_details.append(f"✅ 投信連續買超 {t_count} 天 (+{w['tb_3']}分)")
                             else: c_details.append(f"➖ 投信連續買超 {t_count} 天 (未達3天，0分)")
                         elif t_dir == 'sell':
-                            if t_count >= 10: chip_score -= 7; c_details.append(f"❌ 投信連續賣超 {t_count} 天 (-7分)")
-                            elif t_count >= 5: chip_score -= 3; c_details.append(f"❌ 投信連續賣超 {t_count} 天 (-3分)")
-                            elif t_count >= 3: chip_score -= 1; c_details.append(f"❌ 投信連續賣超 {t_count} 天 (-1分)")
+                            if t_count >= 10: chip_score += w['ts_10']; c_details.append(f"❌ 投信連續賣超 {t_count} 天 ({w['ts_10']}分)")
+                            elif t_count >= 5: chip_score += w['ts_5']; c_details.append(f"❌ 投信連續賣超 {t_count} 天 ({w['ts_5']}分)")
+                            elif t_count >= 3: chip_score += w['ts_3']; c_details.append(f"❌ 投信連續賣超 {t_count} 天 ({w['ts_3']}分)")
                             else: c_details.append(f"➖ 投信連續賣超 {t_count} 天 (未達3天，0分)")
                         else: c_details.append("➖ 投信近期無連續買賣超 (0分)")
                     else:
                         c_details.append("⚠️ 無近期法人籌碼資料，或 API 額度耗盡 (0分)")
 
-                    fund_score = match_df.iloc[0]['基本面評分 (滿分21)'] if not match_df.empty else 0
+                    fund_score = match_df.iloc[0]['基本面評分'] if not match_df.empty else 0
                     fund_details_str = match_df.iloc[0]['給分明細'] if not match_df.empty else "❌ 無基本面資料"
                         
                     total_score = fund_score + tech_score + chip_score
                     
-                    # 💡 因應總分升級為 93 分，全面調高各個評級的觸發門檻
+                    # 💡 自動依照你設定的總分比例，計算出嚴格的評級標準
                     def get_final_rec(s):
-                        if s >= 75: return "🔥 強力買進"
-                        elif s >= 50: return "📈 買進"
-                        elif s >= 30: return "⚖️ 普通"
-                        elif s >= 10: return "📉 賣出"
+                        if s >= total_max * 0.8: return "🔥 強力買進"
+                        elif s >= total_max * 0.55: return "📈 買進"
+                        elif s >= total_max * 0.3: return "⚖️ 普通"
+                        elif s >= 0: return "📉 賣出"
                         else: return "❌ 強力賣出"
 
-                    st.markdown(f"### 🏆 {query_stock} 綜合 93 分總結算報告")
+                    st.markdown(f"### 🏆 {query_stock} 綜合 {total_max} 分總結算報告")
                     
                     colA, colB, colC, colD = st.columns(4)
-                    colA.metric("📊 基本面動能", f"{fund_score} / 21 分")
-                    # 技術面加上大底分數，滿分變為 55 分
-                    colB.metric("📈 估值、技術與大底", f"{tech_score} / 55 分")
-                    colC.metric("🏦 法人籌碼", f"{chip_score} / 17 分")
+                    colA.metric("📊 基本面動能", f"{fund_score} / {max_fund} 分")
+                    colB.metric("📈 估值與技術", f"{tech_score} / {max_tech} 分")
+                    colC.metric("🏦 法人籌碼", f"{chip_score} / {max_chip} 分")
                     colD.metric("🎯 最終總評級", f"{total_score} 分", get_final_rec(total_score))
                     
                     with st.expander("📝 點此查看【基本面】、【大底與技術面】與【籌碼面】給分明細"):
