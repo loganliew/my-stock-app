@@ -162,7 +162,6 @@ def calculate_fundamental_score(df, mom_dict, w):
         
     scored_df = pd.DataFrame(scores)
     
-    # 依據動態權重決定基本面初評門檻
     max_fund = w['eps_p'] + w['rev_qoq'] + w['gm_qoq'] + w['rev_mom']
     def get_fund_rec(s):
         if s >= max_fund * 0.8: return "🔥 強力買進"
@@ -222,53 +221,52 @@ def main():
     st.set_page_config(page_title="台股量化策略實驗室", page_icon="🎯", layout="wide")
     
     # ==========================================
-    # ⚙️ 側邊欄：自訂權重參數設定區
+    # ⚙️ 側邊欄：自訂權重參數設定區 (💡 加入專屬 key 防失憶)
     # ==========================================
     st.sidebar.header("⚙️ 策略權重設定面板")
     st.sidebar.write("自由調整各項指標分數，打造你的專屬策略！")
     
-    w = {} # 裝載所有權重的字典
+    w = {} 
     
     with st.sidebar.expander("📊 基本面與營收動能", expanded=False):
-        w['eps_p'] = st.number_input("✅ EPS > 0 加分", value=5, step=1)
-        w['eps_f'] = st.number_input("❌ EPS <= 0 扣分", value=-5, step=1)
-        w['rev_qoq'] = st.number_input("✅ 營收季增 加分", value=5, step=1)
-        w['gm_qoq'] = st.number_input("✅ 毛利季增 加分", value=5, step=1)
-        w['rev_mom'] = st.number_input("✅ 月營收月增 加分", value=6, step=1)
+        w['eps_p'] = st.number_input("✅ EPS > 0 加分", value=5, step=1, key="eps_p")
+        w['eps_f'] = st.number_input("❌ EPS <= 0 扣分", value=-5, step=1, key="eps_f")
+        w['rev_qoq'] = st.number_input("✅ 營收季增 加分", value=5, step=1, key="rev_qoq")
+        w['gm_qoq'] = st.number_input("✅ 毛利季增 加分", value=5, step=1, key="gm_qoq")
+        w['rev_mom'] = st.number_input("✅ 月營收月增 加分", value=6, step=1, key="rev_mom")
 
     with st.sidebar.expander("📈 估值、大底與技術面", expanded=False):
         st.write("**估值判斷**")
-        w['pe_safe'] = st.number_input("✅ 本益比 < 20 加分", value=10, step=1)
-        w['pe_warn'] = st.number_input("✅ 本益比 20~25 加分", value=3, step=1)
+        w['pe_safe'] = st.number_input("✅ 本益比 < 20 加分", value=10, step=1, key="pe_safe")
+        w['pe_warn'] = st.number_input("✅ 本益比 20~25 加分", value=3, step=1, key="pe_warn")
         st.write("**歷史大底判定**")
-        w['btm_break'] = st.number_input("🚀 突破 10年大底 加分", value=25, step=1)
-        w['btm_above'] = st.number_input("✅ 在 10年大底之上 加分", value=2, step=1)
-        w['btm_below'] = st.number_input("⚠️ 跌破 10年大底 扣分", value=-5, step=1)
+        w['btm_break'] = st.number_input("🚀 突破 10年大底 加分", value=25, step=1, key="btm_break")
+        w['btm_above'] = st.number_input("✅ 在 10年大底之上 加分", value=2, step=1, key="btm_above")
+        w['btm_below'] = st.number_input("⚠️ 跌破 10年大底 扣分", value=-5, step=1, key="btm_below")
         st.write("**短期技術面**")
-        w['macd_hist'] = st.number_input("✅ MACD 紅柱 加分", value=5, step=1)
-        w['macd_gc'] = st.number_input("🔥 MACD 黃金交叉 加分", value=10, step=1)
-        w['bb_safe'] = st.number_input("✅ 布林安全區 加分", value=5, step=1)
+        w['macd_hist'] = st.number_input("✅ MACD 紅柱 加分", value=5, step=1, key="macd_hist")
+        w['macd_gc'] = st.number_input("🔥 MACD 黃金交叉 加分", value=10, step=1, key="macd_gc")
+        w['bb_safe'] = st.number_input("✅ 布林安全區 加分", value=5, step=1, key="bb_safe")
 
     with st.sidebar.expander("🏦 法人籌碼動向", expanded=False):
         st.write("**外資動向**")
-        w['fb_10'] = st.number_input("外資連買 >= 10天 加分", value=10, step=1)
-        w['fb_5'] = st.number_input("外資連買 >= 5天 加分", value=5, step=1)
-        w['fb_3'] = st.number_input("外資連買 >= 3天 加分", value=2, step=1)
-        w['fs_10'] = st.number_input("外資連賣 >= 10天 扣分", value=-10, step=1)
-        w['fs_5'] = st.number_input("外資連賣 >= 5天 扣分", value=-5, step=1)
-        w['fs_3'] = st.number_input("外資連賣 >= 3天 扣分", value=-2, step=1)
+        w['fb_10'] = st.number_input("外資連買 >= 10天 加分", value=10, step=1, key="fb_10")
+        w['fb_5'] = st.number_input("外資連買 >= 5天 加分", value=5, step=1, key="fb_5")
+        w['fb_3'] = st.number_input("外資連買 >= 3天 加分", value=2, step=1, key="fb_3")
+        w['fs_10'] = st.number_input("外資連賣 >= 10天 扣分", value=-10, step=1, key="fs_10")
+        w['fs_5'] = st.number_input("外資連賣 >= 5天 扣分", value=-5, step=1, key="fs_5")
+        w['fs_3'] = st.number_input("外資連賣 >= 3天 扣分", value=-2, step=1, key="fs_3")
         st.write("**投信動向**")
-        w['tb_10'] = st.number_input("投信連買 >= 10天 加分", value=7, step=1)
-        w['tb_5'] = st.number_input("投信連買 >= 5天 加分", value=3, step=1)
-        w['tb_3'] = st.number_input("投信連買 >= 3天 加分", value=1, step=1)
-        w['ts_10'] = st.number_input("投信連賣 >= 10天 扣分", value=-7, step=1)
-        w['ts_5'] = st.number_input("投信連賣 >= 5天 扣分", value=-3, step=1)
-        w['ts_3'] = st.number_input("投信連賣 >= 3天 扣分", value=-1, step=1)
+        w['tb_10'] = st.number_input("投信連買 >= 10天 加分", value=7, step=1, key="tb_10")
+        w['tb_5'] = st.number_input("投信連買 >= 5天 加分", value=3, step=1, key="tb_5")
+        w['tb_3'] = st.number_input("投信連買 >= 3天 加分", value=1, step=1, key="tb_3")
+        w['ts_10'] = st.number_input("投信連賣 >= 10天 扣分", value=-7, step=1, key="ts_10")
+        w['ts_5'] = st.number_input("投信連賣 >= 5天 扣分", value=-3, step=1, key="ts_5")
+        w['ts_3'] = st.number_input("投信連賣 >= 3天 扣分", value=-1, step=1, key="ts_3")
 
-    # 動態計算理論滿分
     max_fund = w['eps_p'] + w['rev_qoq'] + w['gm_qoq'] + w['rev_mom']
     max_tech = w['pe_safe'] + w['btm_break'] + w['macd_hist'] + w['macd_gc'] + w['bb_safe']
-    max_chip = w['fb_10'] + w['tb_10']
+    max_chip = max(w['fb_10'], w['fb_5'], w['fb_3']) + max(w['tb_10'], w['tb_5'], w['tb_3'])
     total_max = max_fund + max_tech + max_chip
 
     st.sidebar.markdown("---")
@@ -291,7 +289,6 @@ def main():
         
         if not result_df.empty:
             result_df = result_df.sort_values(by=['基本面評分', '單季 EPS (元)'], ascending=[False, False]).reset_index(drop=True)
-            # 動態快篩門檻：基本面拿滿分的 60% 才入選
             filter_threshold = int(max_fund * 0.6)
             high_score_df = result_df[result_df['基本面評分'] >= filter_threshold]
             
@@ -319,30 +316,32 @@ def main():
         st.header(f"📈 個股 {total_max} 分總結算與技術籌碼分析")
         
         st.write("⚙️ **個股查詢與指標開關**")
+        # 💡 輸入與按鈕也都加上 key
         col_input, col_ma, col_bb, col_vol, col_macd, col_lt = st.columns([1.5, 2.5, 0.8, 1, 0.8, 1.5])
         
         with col_input:
-            query_stock_raw = st.text_input("🔍 輸入代號並按 Enter", "2324")
+            query_stock_raw = st.text_input("🔍 輸入代號並按 Enter", "2324", key="query_stock_input")
             query_stock = query_stock_raw.split()[0].strip() if query_stock_raw else ""
             
         with col_ma:
             ma_options = st.multiselect(
                 "📊 選擇顯示均線", 
                 options=["5MA", "10MA", "20MA(月線)", "60MA(季線)"], 
-                default=["5MA", "10MA", "20MA(月線)", "60MA(季線)"]
+                default=["5MA", "10MA", "20MA(月線)", "60MA(季線)"],
+                key="ma_options_input"
             )
         with col_bb:
             st.write(" ")
-            show_bb = st.checkbox("顯示布林", value=True)
+            show_bb = st.checkbox("顯示布林", value=True, key="show_bb_input")
         with col_vol:
             st.write(" ")
-            show_vol = st.checkbox("顯示成交量", value=True)
+            show_vol = st.checkbox("顯示成交量", value=True, key="show_vol_input")
         with col_macd:
             st.write(" ")
-            show_macd = st.checkbox("顯示 MACD", value=False)
+            show_macd = st.checkbox("顯示 MACD", value=False, key="show_macd_input")
         with col_lt:
             st.write(" ")
-            show_long_term = st.checkbox("顯示10年大底/成本", value=True)
+            show_long_term = st.checkbox("顯示10年大底/成本", value=True, key="show_lt_input")
 
         if query_stock:
             with st.spinner("即時調閱歷史數據，運算大底突破與技術指標中..."):
@@ -391,7 +390,6 @@ def main():
                     tech_score = 0
                     t_details = []
                     
-                    # === 【1. 估值計算】 ===
                     match_df = result_df[result_df['股票代號'].str.startswith(query_stock)]
                     ttm_eps = match_df.iloc[0]['近四季EPS總和'] if not match_df.empty else 0
                     close_price = latest['close']
@@ -407,7 +405,6 @@ def main():
                     else:
                         t_details.append("❌ 近四季 EPS 為負值或無資料，無法計算本益比 (0分)")
                         
-                    # === 【2. 大底突破判定】 ===
                     is_breakout = False
                     for line in [ten_year_low, poc_price]:
                         if prev['close'] <= line and latest['close'] > line:
@@ -426,7 +423,6 @@ def main():
                     else:
                         t_details.append("➖ 底部震盪：股價正處於歷史谷底與成本線之間 (0分)")
                     
-                    # === 【3. 技術面計算】 ===
                     if latest['MACD_Hist'] > 0:
                         tech_score += w['macd_hist']; t_details.append(f"✅ 技術動能：MACD 柱狀體為紅色 (+{w['macd_hist']}分)")
                     else:
@@ -444,7 +440,6 @@ def main():
                     else:
                         tech_score += w['bb_safe']; t_details.append(f"✅ 技術位置：股價處於布林通道安全區間 (+{w['bb_safe']}分)")
 
-                    # === 【4. 籌碼面計算】 ===
                     chip_score = 0
                     c_details = []
                     
@@ -508,7 +503,6 @@ def main():
                         
                     total_score = fund_score + tech_score + chip_score
                     
-                    # 💡 自動依照你設定的總分比例，計算出嚴格的評級標準
                     def get_final_rec(s):
                         if s >= total_max * 0.8: return "🔥 強力買進"
                         elif s >= total_max * 0.55: return "📈 買進"
@@ -520,7 +514,7 @@ def main():
                     
                     colA, colB, colC, colD = st.columns(4)
                     colA.metric("📊 基本面動能", f"{fund_score} / {max_fund} 分")
-                    colB.metric("📈 估值與技術", f"{tech_score} / {max_tech} 分")
+                    colB.metric("📈 估值、大底與技術", f"{tech_score} / {max_tech} 分")
                     colC.metric("🏦 法人籌碼", f"{chip_score} / {max_chip} 分")
                     colD.metric("🎯 最終總評級", f"{total_score} 分", get_final_rec(total_score))
                     
